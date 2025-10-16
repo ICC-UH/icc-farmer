@@ -67,6 +67,10 @@ class Platform(BasePlatform):
         if not data.get('data', {}):
             return data.get('message', 'Unknown error')
 
+        # Only raise for server errors
+        if 500 <= res.status_code < 600:
+            res.raise_for_status()
+
         return self._process_flag_result(data.get('message', 'unknown'), flag)
 
     def submit_flags(self, flags: t.List[str]) -> t.Union[str, t.List[dict]]:
@@ -80,6 +84,10 @@ class Platform(BasePlatform):
 
         if data.get('status') == 'failed':
             return data.get('message', 'Unknown error')
+
+        # Only raise for server errors
+        if 500 <= res.status_code < 600:
+            res.raise_for_status()
 
         return [
             self._process_flag_result(
