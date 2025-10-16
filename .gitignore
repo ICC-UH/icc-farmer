@@ -1,0 +1,30 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Ignore IDE related files
+/.idea
+/.vs
+/.vscode
+
+# OS
+Thumbs.db
+.DS_Store
+
+logs/
+!logs/.gitkeep
+
+scripts/
+!scripts/.gitkeep
+
+flags.db
