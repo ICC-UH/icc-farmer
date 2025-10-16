@@ -22,8 +22,8 @@ SUBMITTER_BATCH_SIZE = min(100, TOTAL_TEAM * 2)
 LOGS_PATH = "./logs"
 
 PLATFORM = 'ailurus'
-USERNAME = 'ztz@test.com'
-PASSWORD = 'ztz123'
+USERNAME = 'u1@test.com'
+PASSWORD = 'JVYi@b7iQPdAKBV'
 TOKEN = ''
 
 class NormalFormatter(logging.Formatter):
@@ -78,7 +78,7 @@ class Flag:
         self.status = status
 
     def __repr__(self):
-        return f'Flag(team_id={self.team_id}, team_name="{self.team_name}", challenge_id={self.challenge_id}, challenge_name="{self.challenge_name}", flag="{self.flag}", status="{self.status}")'
+        return f'Flag(team_id={self.team_id}, team_name={self.team_name!r}, challenge_id={self.challenge_id}, challenge_name={self.challenge_name!r}, flag={self.flag!r}, status="{self.status}")'
 
 
 def setup_database():

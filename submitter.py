@@ -8,14 +8,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
-from platforms.platform import get_platform
+from platforms.platform import BasePlatform, get_platform
 from shared import (
     BASE_URL,
     CAN_BATCH_SUBMIT,
-    SUBMITTER_MAX_WORKERS,
     PASSWORD,
     PLATFORM,
     SUBMITTER_BATCH_SIZE,
+    SUBMITTER_MAX_WORKERS,
     SUBMITTER_WAKE,
     TOKEN,
     USERNAME,
@@ -25,11 +25,15 @@ from shared import (
     setup_logging,
 )
 
-session = requests.Session()
-platform = get_platform(PLATFORM, session, BASE_URL, USERNAME, PASSWORD, TOKEN)
+logger: logging.Logger
+
+session: requests.Session = None
+platform: 'BasePlatform' = None
+
+stop_event: threading.Event = threading.Event()
 
 
-def update_flag_status(logger: logging.Logger, results: list[dict]):
+def update_flag_status(results: list[dict]):
     try:
         with sqlite3.connect('flags.db', timeout=10) as conn:
             updated = []
@@ -50,17 +54,15 @@ def update_flag_status(logger: logging.Logger, results: list[dict]):
 
 
 # FIXME: Bad retry concept, because what if the error is different each
-# time when retrying?
+#   time when retrying?
 def submit_flags(
     flags: str | list[str], retries=3, backoff=2
 ) -> tuple[Exception | list[Exception], dict] | tuple[Exception, dict]:
-    if not CAN_BATCH_SUBMIT and not isinstance(flags, str):
-        raise ValueError(
-            'When CAN_BATCH_SUBMIT is False, flags must be a single flag string.'
-        )
-
     exceptions = []
     for attempt in range(1, retries + 1):
+        if stop_event.is_set():
+            return Exception('Submission cancelled'), {}
+
         try:
             if isinstance(flags, str):
                 return None, platform.submit_flag(flags)
@@ -83,104 +85,117 @@ def submit_flags(
 
             # For 4xx errors, don't bother retrying - it's our fault
             return exceptions, {}
-        except Exception as e:
+        except BaseException as e:
             return e, {}
 
 
 # Should we add delay between submissions to avoid rate limiting? since
 # the batch size is too low?
-def submit_flags_batch(logger: logging.Logger, flags: list[Flag]):
-    with ThreadPoolExecutor(max_workers=SUBMITTER_MAX_WORKERS) as executor:
+def submit_flags_batch(flags: list[Flag]):
+    with ThreadPoolExecutor(max_workers=SUBMITTER_MAX_WORKERS) as ex:
+        # I hate this code, but I can't think of a cleaner way to do it
         futures = {
-            executor.submit(
+            ex.submit(
                 submit_flags,
                 [flag.flag for flag in flags[i : i + SUBMITTER_BATCH_SIZE]],
             ): flags[i : i + SUBMITTER_BATCH_SIZE]
             for i in range(0, len(flags), SUBMITTER_BATCH_SIZE)
         }
 
-        for future in as_completed(futures):
-            batch = futures[future]  # May be useful for future?
-            message, results = future.result()
+        try:
+            for future in as_completed(futures):
+                batch = futures[future]  # May be useful for future?
+                message, results = future.result()
 
+                logger.info(
+                    f'Flag submit for Thread {threading.get_ident()} (batch size {len(batch)}):'
+                )
+                if message:
+                    logger.error(f'\tFailed to submit flags: {message}')
+                elif isinstance(results, str):
+                    logger.error(f'\tSubmission error: {results}')
+                else:
+                    update_flag_status(results)
+        except KeyboardInterrupt:
             logger.info(
-                f'Flag submit for Thread {threading.get_ident()} (batch size {len(batch)}):'
+                'Submission interrupted by user, cancelling pending submissions...'
             )
-            if message:
-                logger.error(f'\tFailed to submit flags: {message}')
-            elif isinstance(results, str):
-                logger.error(f'\tSubmission error: {results}')
-            else:
-                update_flag_status(logger, results)
+            stop_event.set()
+            ex.shutdown(wait=False, cancel_futures=True)
 
 
 # TODO: Add delay between submissions to avoid rate limiting
-def submit_flags_individual(logger: logging.Logger, flags: list[Flag]):
-    with ThreadPoolExecutor(max_workers=SUBMITTER_MAX_WORKERS) as executor:
-        futures = {executor.submit(submit_flags, flag.flag): flag for flag in flags}
+def submit_flags_individual(flags: list[Flag]):
+    with ThreadPoolExecutor(max_workers=SUBMITTER_MAX_WORKERS) as ex:
+        futures = {ex.submit(submit_flags, flag.flag): flag for flag in flags}
 
-        for future in as_completed(futures):
-            # flag = futures[future] # May be useful for future?
-            message, result = future.result()
+        try:
+            for future in as_completed(futures):
+                # flag = futures[future] # May be useful for future?
+                message, result = future.result()
 
-            logger.info(f'Flag submit for Thread {threading.get_ident()}:')
-            if message:
-                logger.error(f'\tFailed to submit flag: {message}')
-            elif isinstance(result, str):
-                logger.error(f'\tSubmission error: {result}')
-            else:
-                update_flag_status(logger, [result])
+                logger.info(f'Flag submit for Thread {threading.get_ident()}:')
+                if message:
+                    logger.error(f'\tFailed to submit flag: {message}')
+                elif isinstance(result, str):
+                    logger.error(f'\tSubmission error: {result}')
+                else:
+                    update_flag_status([result])
+        except KeyboardInterrupt:
+            logger.info(
+                'Submission interrupted by user, cancelling pending submissions...'
+            )
+            stop_event.set()
+            ex.shutdown(wait=False, cancel_futures=True)
 
 
-def main(logger: logging.Logger, stop_set: threading.Event):
+def main():
     try:
-        data = platform.login()
-        if not data:
-            logger.error('Login failed, no data returned.')
-            sys.exit(1)
-
-        if isinstance(data, str):
-            logger.info(f'Logged in, token: {data}')
-        elif isinstance(data, dict):
-            logger.info(f'Logged in, data: {data}')
-    except requests.RequestException as e:
-        logger.error(f'Failed to login to platform: {e}')
+        platform.login()
+        logger.info(f'Logged in, token: {platform.token}')
+    except requests.HTTPError as e:
+        logger.critical(f'Failed to log in: {e}')
         sys.exit(1)
 
     conn = sqlite3.connect('flags.db')
     cursor = conn.cursor()
 
-    while not stop_set.is_set():
+    while not stop_event.is_set():
         logger.info('Checking for flags to submit...')
 
         cursor.execute('SELECT * FROM flags WHERE status = ?', (FlagStatus.UNKNOWN,))
         flags = [Flag(*row[1:]) for row in cursor.fetchall()]
 
-        if flags:
-            if CAN_BATCH_SUBMIT:
-                submit_flags_batch(logger, flags)
+        try:
+            if flags:
+                if CAN_BATCH_SUBMIT:
+                    submit_flags_batch(flags)
+                else:
+                    submit_flags_individual(flags)
             else:
-                submit_flags_individual(logger, flags)
-        else:
-            logger.info('No flags to submit.')
+                logger.info('No flags to submit.')
+        except KeyboardInterrupt:
+            raise
 
         logger.info(f'Sleeping for {SUBMITTER_WAKE} seconds before next submission...')
-        stop_set.wait(SUBMITTER_WAKE)
+        stop_event.wait(SUBMITTER_WAKE)
 
     cursor.close()
     conn.close()
 
 
 if __name__ == '__main__':
+    # hate this stupid global, but whatever
     logger = setup_logging('1_submitter')
     setup_database()
 
-    stop_set = threading.Event()
+    session = requests.Session()
+    platform = get_platform(PLATFORM, session, BASE_URL, USERNAME, PASSWORD, TOKEN)
 
     try:
-        main(logger, stop_set)
+        main()
     except KeyboardInterrupt:
-        stop_set.set()
+        stop_event.set()
         logger.info('Received keyboard interrupt, stopping...')
     finally:
         logger.info('Exited cleanly')
