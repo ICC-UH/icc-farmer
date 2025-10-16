@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import typing as t
 
-from platforms.platform import BasePlatform
+from platforms.platform import (
+    BasePlatform,
+    FlagSubmissionResult,
+    PlatformChallenge,
+    PlatformService,
+    PlatformTeam,
+)
 
 
 class Platform(BasePlatform):
@@ -24,21 +30,23 @@ class Platform(BasePlatform):
     def is_logged_in(self) -> bool:
         return bool(self.token)
 
-    def list_teams(self) -> t.Iterator[dict]:
+    def list_teams(self) -> t.Iterator[PlatformTeam]:
         res = self.session.get(f'{self.base_url}/api/v2/teams', timeout=5)
         res.raise_for_status()
 
         for team in res.json().get('data', []):
-            yield {'id': int(team.get('id')), 'name': team.get('name')}
+            yield PlatformTeam(id=int(team.get('id')), name=team.get('name'))
 
-    def list_challenges(self) -> t.Iterator[dict]:
+    def list_challenges(self) -> t.Iterator[PlatformChallenge]:
         res = self.session.get(f'{self.base_url}/api/v2/challenges', timeout=5)
         res.raise_for_status()
 
         for challenge in res.json().get('data', []):
-            yield {'id': int(challenge.get('id')), 'title': challenge.get('title')}
+            yield PlatformChallenge(
+                id=int(challenge.get('id')), title=challenge.get('title')
+            )
 
-    def get_services(self, filter_: dict) -> t.Iterator[dict]:
+    def get_services(self, filter_: dict) -> t.Iterator[PlatformService]:
         if 'challenge_id' not in filter_:
             raise ValueError("filter_ must contain 'challenge_id'")
 
@@ -49,13 +57,13 @@ class Platform(BasePlatform):
         res.raise_for_status()
 
         for team_id, addresses in res.json().get('data', {}).items():
-            yield {
-                'addresses': addresses,
-                'challenge_id': int(challenge_id),
-                'team_id': int(team_id),
-            }
+            yield PlatformService(
+                addresses=addresses,
+                challenge_id=challenge_id,
+                team_id=int(team_id),
+            )
 
-    def submit_flag(self, flag: str) -> t.Union[str, dict]:
+    def submit_flag(self, flag: str) -> t.Union[str, FlagSubmissionResult]:
         if not isinstance(flag, str):
             raise ValueError('flag must be a string')
 
@@ -73,7 +81,9 @@ class Platform(BasePlatform):
 
         return self._process_flag_result(data.get('message', 'unknown'), flag)
 
-    def submit_flags(self, flags: t.List[str]) -> t.Union[str, t.List[dict]]:
+    def submit_flags(
+        self, flags: t.List[str]
+    ) -> t.Union[str, t.List[FlagSubmissionResult]]:
         if not isinstance(flags, list):
             raise ValueError('flags must be a list of strings')
 
@@ -96,10 +106,12 @@ class Platform(BasePlatform):
             for flag_data in data.get('data', [])
         ]
 
-    def _process_flag_result(self, verdict: dict, flag: str) -> dict:
+    def _process_flag_result(self, verdict: dict, flag: str) -> FlagSubmissionResult:
         status_map = {
             'flag is correct.': 'accepted',
             'flag is wrong or expired.': 'rejected',
             'flag already submitted.': 'already_submitted',
         }
-        return {'flag': flag, 'status': status_map.get(verdict, 'unknown')}
+        return FlagSubmissionResult(
+            flag=flag, status=status_map.get(verdict, 'unknown')
+        )

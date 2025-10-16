@@ -2,8 +2,34 @@ from __future__ import annotations
 
 import importlib
 import typing as t
+from dataclasses import dataclass
 
 import requests
+
+
+@dataclass
+class PlatformTeam:
+    id: int
+    name: str
+
+
+@dataclass
+class PlatformChallenge:
+    id: int
+    title: str
+
+
+@dataclass
+class PlatformService:
+    addresses: t.List[str]
+    challenge_id: int
+    team_id: int
+
+
+@dataclass
+class FlagSubmissionResult:
+    flag: str
+    status: str
 
 
 class BasePlatform:
@@ -31,23 +57,25 @@ class BasePlatform:
         """Check if the current session is authenticated."""
         raise NotImplementedError()
 
-    def list_teams(self) -> t.Iterator[dict]:
+    def list_teams(self) -> t.Iterator[PlatformTeam]:
         """Yield available teams."""
         raise NotImplementedError()
 
-    def list_challenges(self) -> t.Iterator[dict]:
+    def list_challenges(self) -> t.Iterator[PlatformChallenge]:
         """Yield available challenges."""
         raise NotImplementedError()
 
-    def get_services(self, filter_: dict) -> t.Iterator[dict]:
+    def get_services(self, filter_: dict) -> t.Iterator[PlatformService]:
         """Yield services filtered by the given criteria."""
         raise NotImplementedError()
 
-    def submit_flag(self, flag: str) -> t.Union[str, dict]:
+    def submit_flag(self, flag: str) -> t.Union[str, FlagSubmissionResult]:
         """Submit a single flag and return the result."""
         raise NotImplementedError()
 
-    def submit_flags(self, flags: t.List[str]) -> t.Union[str, t.List[dict]]:
+    def submit_flags(
+        self, flags: t.List[str]
+    ) -> t.Union[str, t.List[FlagSubmissionResult]]:
         """Submit multiple flags and return the results."""
         raise NotImplementedError()
 

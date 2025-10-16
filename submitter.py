@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
-from platforms.platform import BasePlatform, get_platform
+from platforms.platform import BasePlatform, FlagSubmissionResult, get_platform
 from shared import (
     BASE_URL,
     CAN_BATCH_SUBMIT,
@@ -32,16 +32,16 @@ platform: 'BasePlatform' = None
 stop_event: threading.Event = threading.Event()
 
 
-def update_flag_status(results: list[dict]):
+def update_flag_status(results: list[FlagSubmissionResult]):
     try:
         with sqlite3.connect('flags.db', timeout=10) as conn:
             updated = []
             for result in results:
                 conn.execute(
                     'UPDATE flags SET status=? WHERE flag=?',
-                    (result.get('status'), result.get('flag')),
+                    (result.status, result.flag),
                 )
-                updated.append(f'{result.get("flag")}-{result.get("status")}')
+                updated.append(f'{result.flag}-{result.status}')
 
             conn.commit()
 
@@ -56,11 +56,16 @@ def update_flag_status(results: list[dict]):
 #   time when retrying?
 def submit_flags(
     flags: str | list[str], retries=3, backoff=2
-) -> tuple[Exception | list[Exception], dict] | tuple[Exception, dict]:
+) -> (
+    tuple[Exception | list[Exception], FlagSubmissionResult]
+    | tuple[Exception, FlagSubmissionResult]
+):
     exceptions = []
     for attempt in range(1, retries + 1):
         if stop_event.is_set():
-            return Exception('Submission cancelled'), {}
+            return Exception('Submission cancelled'), FlagSubmissionResult(
+                flag='', status='cancelled'
+            )
 
         try:
             if isinstance(flags, str):
@@ -83,9 +88,9 @@ def submit_flags(
                 continue
 
             # For 4xx errors, don't bother retrying - it's our fault
-            return exceptions, {}
+            return exceptions, FlagSubmissionResult(flag='', status='failed')
         except BaseException as e:
-            return e, {}
+            return e, FlagSubmissionResult(flag='', status='failed')
 
 
 def submit_flags_batch(flags: list[Flag]):
