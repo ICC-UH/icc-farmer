@@ -26,7 +26,6 @@ from shared import (
 )
 
 logger: logging.Logger
-
 session: requests.Session = None
 platform: 'BasePlatform' = None
 
@@ -121,7 +120,7 @@ def submit_flags_batch(flags: list[Flag]):
                 'Submission interrupted by user, cancelling pending submissions...'
             )
             stop_event.set()
-            ex.shutdown(wait=True, cancel_futures=True)
+            ex.shutdown(wait=False, cancel_futures=True)
 
 
 def submit_flags_individual(flags: list[Flag]):
@@ -153,7 +152,7 @@ def submit_flags_individual(flags: list[Flag]):
                 'Submission interrupted by user, cancelling pending submissions...'
             )
             stop_event.set()
-            ex.shutdown(wait=True, cancel_futures=True)
+            ex.shutdown(wait=False, cancel_futures=True)
 
 
 def main():
