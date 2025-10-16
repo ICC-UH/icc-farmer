@@ -2,6 +2,7 @@ import enum
 import logging
 import os
 import sqlite3
+from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
 
 FLAG_PREFIX = 'ICC{'
@@ -23,8 +24,8 @@ SUBMITTER_BATCH_SIZE = min(100, TOTAL_TEAM * 2)
 LOGS_PATH = './logs'
 
 PLATFORM = 'ailurus'
-USERNAME = 'u1@test.com'
-PASSWORD = 'JVYi@b7iQPdAKBV'
+USERNAME = 'u2@test.com'
+PASSWORD = 'GmLkj@d34WGe!vW'
 TOKEN = ''
 
 
@@ -63,25 +64,14 @@ class FlagStatus(str, enum.Enum):
     ALREADY_SUBMITTED = 'already_submitted'
 
 
+@dataclass
 class Flag:
-    def __init__(
-        self,
-        team_id: int,
-        team_name: str,
-        challenge_id: int,
-        challenge_name: str,
-        flag: str,
-        status: str = FlagStatus.UNKNOWN,
-    ):
-        self.team_id = team_id
-        self.team_name = team_name
-        self.challenge_id = challenge_id
-        self.challenge_name = challenge_name
-        self.flag = flag
-        self.status = status
-
-    def __repr__(self):
-        return f'Flag(team_id={self.team_id}, team_name={self.team_name!r}, challenge_id={self.challenge_id}, challenge_name={self.challenge_name!r}, flag={self.flag!r}, status="{self.status}")'
+    team_id: int
+    team_name: str
+    challenge_id: int
+    challenge_name: str
+    flag: str
+    status: str = FlagStatus.UNKNOWN
 
 
 def setup_database():
