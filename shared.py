@@ -1,12 +1,13 @@
+import enum
 import logging
-from logging.handlers import RotatingFileHandler
 import os
 import sqlite3
+from logging.handlers import RotatingFileHandler
 
-FLAG_PREFIX = "ICC{"
+FLAG_PREFIX = 'ICC{'
 CAN_BATCH_SUBMIT = True
 
-BASE_URL = "http://192.168.18.2:5000/"
+BASE_URL = 'http://192.168.18.2:5000/'
 
 INTERVAL = 60 * 2
 TOTAL_TEAM = 3
@@ -19,45 +20,47 @@ SUBMITTER_WAKE = max(4, (INTERVAL // TOTAL_TEAM) - 4)
 SUBMITTER_MAX_WORKERS = 4
 SUBMITTER_BATCH_SIZE = min(100, TOTAL_TEAM * 2)
 
-LOGS_PATH = "./logs"
+LOGS_PATH = './logs'
 
 PLATFORM = 'ailurus'
 USERNAME = 'u1@test.com'
 PASSWORD = 'JVYi@b7iQPdAKBV'
 TOKEN = ''
 
+
 class NormalFormatter(logging.Formatter):
     def format(self, record):
-        levelname = f"{record.levelname:<8}"  # Pad to width 8
-        record.levelname = f"{levelname}"
+        levelname = f'{record.levelname:<8}'  # Pad to width 8
+        record.levelname = f'{levelname}'
         return super().format(record)
 
 
 class ColoredFormatter(logging.Formatter):
     COLORS = {
-        "DEBUG": "\033[36m",        # Cyan
-        "INFO": "\033[32m",         # Green
-        "WARNING": "\033[33m",      # Yellow
-        "ERROR": "\033[31m",        # Red
-        "CRITICAL": "\033[41m",     # Red background
+        'DEBUG': '\033[36m',  # Cyan
+        'INFO': '\033[32m',  # Green
+        'WARNING': '\033[33m',  # Yellow
+        'ERROR': '\033[31m',  # Red
+        'CRITICAL': '\033[41m',  # Red background
     }
-    RESET = "\033[0m"
+    RESET = '\033[0m'
 
     def format(self, record):
         original_levelname = record.levelname
-        levelname = f"{record.levelname:<8}"  # Pad to width 8
-        color = self.COLORS.get(record.levelname, "")
-        record.levelname = f"{color}{levelname}{self.RESET}"
+        levelname = f'{record.levelname:<8}'  # Pad to width 8
+        color = self.COLORS.get(record.levelname, '')
+        record.levelname = f'{color}{levelname}{self.RESET}'
         result = super().format(record)
         record.levelname = original_levelname  # restore for other handlers
         return result
 
 
-class FlagStatus:
-    UNKNOWN = "unknown"
-    ACCEPTED = "accepted"
-    REJECTED = "rejected"
-    ALREADY_SUBMITTED = "already_submitted"
+class FlagStatus(str, enum.Enum):
+    UNKNOWN = 'unknown'
+    SUBMITTING = 'submitting'  # just stay unknown when submitting?
+    ACCEPTED = 'accepted'
+    REJECTED = 'rejected'
+    ALREADY_SUBMITTED = 'already_submitted'
 
 
 class Flag:
@@ -82,7 +85,7 @@ class Flag:
 
 
 def setup_database():
-    with sqlite3.connect("flags.db", timeout=8) as c:
+    with sqlite3.connect('flags.db', timeout=8) as c:
         c.execute("""
             CREATE TABLE IF NOT EXISTS flags (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -109,15 +112,15 @@ def setup_logging(name: str, filename: str = '') -> logging.Logger:
     logger.propagate = False
 
     ch = logging.StreamHandler()
-    ch.setFormatter(ColoredFormatter("%(levelname)s - %(message)s"))
+    ch.setFormatter(ColoredFormatter('%(levelname)s - %(message)s'))
     logger.addHandler(ch)
 
     fh = RotatingFileHandler(
-        f"{LOGS_PATH}/{name}{'_' + filename if filename else ''}.log",
+        f'{LOGS_PATH}/{name}{"_" + filename if filename else ""}.log',
         maxBytes=5 * 1024 * 1024,
         backupCount=3,
     )
-    fh.setFormatter(NormalFormatter("%(levelname)s - %(message)s"))
+    fh.setFormatter(NormalFormatter('%(levelname)s - %(message)s'))
     logger.addHandler(fh)
 
     return logger

@@ -77,7 +77,7 @@ def submit_flags(
                 isinstance(e, (requests.Timeout, requests.ConnectionError))
                 or (status and 500 <= status < 600)
             ):
-                time.sleep(backoff)
+                stop_event.wait(backoff)
                 backoff = min(
                     backoff * 2 + random.uniform(0, 1), 30
                 )  # Exponential backoff with jitter
@@ -89,20 +89,20 @@ def submit_flags(
             return e, {}
 
 
-# Should we add delay between submissions to avoid rate limiting? since
-# the batch size is too low?
 def submit_flags_batch(flags: list[Flag]):
     with ThreadPoolExecutor(max_workers=SUBMITTER_MAX_WORKERS) as ex:
-        # I hate this code, but I can't think of a cleaner way to do it
-        futures = {
-            ex.submit(
-                submit_flags,
-                [flag.flag for flag in flags[i : i + SUBMITTER_BATCH_SIZE]],
-            ): flags[i : i + SUBMITTER_BATCH_SIZE]
-            for i in range(0, len(flags), SUBMITTER_BATCH_SIZE)
-        }
-
         try:
+            futures = {}
+            for i in range(0, len(flags), SUBMITTER_BATCH_SIZE):
+                if stop_event.is_set():
+                    break
+
+                batch = flags[i : i + SUBMITTER_BATCH_SIZE]
+                future = ex.submit(submit_flags, [flag.flag for flag in batch])
+                futures[future] = batch
+
+                stop_event.wait(random.uniform(0.05, 0.1))
+
             for future in as_completed(futures):
                 batch = futures[future]  # May be useful for future?
                 message, results = future.result()
@@ -121,15 +121,22 @@ def submit_flags_batch(flags: list[Flag]):
                 'Submission interrupted by user, cancelling pending submissions...'
             )
             stop_event.set()
-            ex.shutdown(wait=False, cancel_futures=True)
+            ex.shutdown(wait=True, cancel_futures=True)
 
 
-# TODO: Add delay between submissions to avoid rate limiting
 def submit_flags_individual(flags: list[Flag]):
     with ThreadPoolExecutor(max_workers=SUBMITTER_MAX_WORKERS) as ex:
-        futures = {ex.submit(submit_flags, flag.flag): flag for flag in flags}
-
         try:
+            futures = {}
+            for flag in flags:
+                if stop_event.is_set():
+                    break
+
+                future = ex.submit(submit_flags, flag.flag)
+                futures[future] = flag
+
+                stop_event.wait(random.uniform(0.05, 0.1))
+
             for future in as_completed(futures):
                 # flag = futures[future] # May be useful for future?
                 message, result = future.result()
@@ -146,7 +153,7 @@ def submit_flags_individual(flags: list[Flag]):
                 'Submission interrupted by user, cancelling pending submissions...'
             )
             stop_event.set()
-            ex.shutdown(wait=False, cancel_futures=True)
+            ex.shutdown(wait=True, cancel_futures=True)
 
 
 def main():
@@ -160,13 +167,15 @@ def main():
     conn = sqlite3.connect('flags.db')
     cursor = conn.cursor()
 
-    while not stop_event.is_set():
-        logger.info('Checking for flags to submit...')
+    try:
+        while True:
+            logger.info('Checking for flags to submit...')
 
-        cursor.execute('SELECT * FROM flags WHERE status = ?', (FlagStatus.UNKNOWN,))
-        flags = [Flag(*row[1:]) for row in cursor.fetchall()]
+            cursor.execute(
+                'SELECT * FROM flags WHERE status = ?', (FlagStatus.UNKNOWN,)
+            )
+            flags = [Flag(*row[1:]) for row in cursor.fetchall()]
 
-        try:
             if flags:
                 if CAN_BATCH_SUBMIT:
                     submit_flags_batch(flags)
@@ -174,14 +183,19 @@ def main():
                     submit_flags_individual(flags)
             else:
                 logger.info('No flags to submit.')
-        except KeyboardInterrupt:
-            raise
 
-        logger.info(f'Sleeping for {SUBMITTER_WAKE} seconds before next submission...')
-        stop_event.wait(SUBMITTER_WAKE)
+            if stop_event.is_set():
+                break
 
-    cursor.close()
-    conn.close()
+            logger.info(
+                f'Sleeping for {SUBMITTER_WAKE} seconds before next submission...'
+            )
+            time.sleep(SUBMITTER_WAKE)
+    except KeyboardInterrupt:
+        raise
+    finally:
+        cursor.close()
+        conn.close()
 
 
 if __name__ == '__main__':
@@ -195,7 +209,7 @@ if __name__ == '__main__':
     try:
         main()
     except KeyboardInterrupt:
-        stop_event.set()
         logger.info('Received keyboard interrupt, stopping...')
     finally:
+        session.close()
         logger.info('Exited cleanly')
