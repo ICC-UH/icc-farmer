@@ -29,14 +29,14 @@ class Platform(BasePlatform):
         res.raise_for_status()
 
         for team in res.json().get('data', []):
-            yield {'id': team.get('id'), 'name': team.get('name')}
+            yield {'id': int(team.get('id')), 'name': team.get('name')}
 
     def list_challenges(self) -> t.Iterator[dict]:
         res = self.session.get(f'{self.base_url}/api/v2/challenges', timeout=5)
         res.raise_for_status()
 
         for challenge in res.json().get('data', []):
-            yield {'id': challenge.get('id'), 'title': challenge.get('title')}
+            yield {'id': int(challenge.get('id')), 'title': challenge.get('title')}
 
     def get_services(self, filter_: dict) -> t.Iterator[dict]:
         if 'challenge_id' not in filter_:
@@ -51,12 +51,11 @@ class Platform(BasePlatform):
         for team_id, addresses in res.json().get('data', {}).items():
             yield {
                 'addresses': addresses,
-                'challenge_id': challenge_id,
-                'team_id': team_id,
+                'challenge_id': int(challenge_id),
+                'team_id': int(team_id),
             }
 
     def submit_flag(self, flag: str) -> t.Union[str, dict]:
-        """Submit a single flag and return its status."""
         if not isinstance(flag, str):
             raise ValueError('flag must be a string')
 
@@ -71,7 +70,6 @@ class Platform(BasePlatform):
         return self._process_flag_result(data.get('message', 'unknown'), flag)
 
     def submit_flags(self, flags: t.List[str]) -> t.Union[str, t.List[dict]]:
-        """Submit multiple flags and return their statuses."""
         if not isinstance(flags, list):
             raise ValueError('flags must be a list of strings')
 
