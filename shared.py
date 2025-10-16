@@ -5,14 +5,20 @@ import sqlite3
 
 FLAG_PREFIX = "ICC{"
 CAN_BATCH_SUBMIT = True
+
 BASE_URL = "http://192.168.18.2:5000/"
+
 INTERVAL = 60 * 2
 TOTAL_TEAM = 3
+
 FARMER_WAKE = max(1, (INTERVAL // 2))
 FARMER_TIMEOUT = max(1, (FARMER_WAKE // 2))
+FARMER_MAX_WORKERS = 2
+
 SUBMITTER_WAKE = max(4, (INTERVAL // TOTAL_TEAM) - 4)
-MAX_FARMER_WORKERS = 2
-MAX_SUBMITTER_WORKERS = 4
+SUBMITTER_MAX_WORKERS = 4
+SUBMITTER_BATCH_SIZE = min(100, TOTAL_TEAM * 2)
+
 LOGS_PATH = "./logs"
 
 PLATFORM = 'ailurus'
@@ -72,7 +78,7 @@ class Flag:
         self.status = status
 
     def __repr__(self):
-        return f'Flag(id={self.id}, team_id={self.team_id}, team_name="{self.team_name}", challenge_id={self.challenge_id}, challenge_name="{self.challenge_name}", flag="{self.flag}", status="{self.status}")'
+        return f'Flag(team_id={self.team_id}, team_name="{self.team_name}", challenge_id={self.challenge_id}, challenge_name="{self.challenge_name}", flag="{self.flag}", status="{self.status}")'
 
 
 def setup_database():
@@ -96,6 +102,9 @@ def setup_logging(name: str, filename: str = '') -> logging.Logger:
         os.makedirs(LOGS_PATH)
 
     logger = logging.getLogger(name)
+    if logger.handlers:
+        return logger
+
     logger.setLevel(logging.DEBUG)
     logger.propagate = False
 
