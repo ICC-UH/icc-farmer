@@ -13,6 +13,10 @@ from platforms.platform import (
 
 class Platform(BasePlatform):
     def login(self) -> t.Union[str, dict]:
+        if self.token:
+            self.session.headers.update({'Authorization': f'Bearer {self.token}'})
+            return self.token
+
         res = self.session.post(
             f'{self.base_url}/api/v2/authenticate',
             json={'email': self.username, 'password': self.password},
