@@ -9,9 +9,11 @@ from platforms.platform import (
     PlatformService,
     PlatformTeam,
 )
+from typing_extensions import override
 
 
 class Platform(BasePlatform):
+    @override
     def login(self) -> str:
         if self.token:
             self.session.headers.update({'Authorization': f'Bearer {self.token}'})
@@ -19,12 +21,14 @@ class Platform(BasePlatform):
 
         raise ValueError('Token is required for login')
 
+    @override
     def is_logged_in(self) -> bool:
         if self.session.headers.get('Authorization') is None:
             return False
 
         return True
 
+    @override
     def list_teams(self) -> t.Iterator[PlatformTeam]:
         res = self.session.get(f'{self.base_url}/api/user', timeout=5)
         res.raise_for_status()
@@ -32,6 +36,7 @@ class Platform(BasePlatform):
         for team in res.json():
             yield PlatformTeam(id=int(team.get('id')), name=team.get('username'))
 
+    @override
     def get_services(self, filter_: dict) -> t.Iterator[PlatformService]:
         res = self.session.get(f'{self.base_url}/api/user', timeout=5)
         res.raise_for_status()
@@ -43,13 +48,11 @@ class Platform(BasePlatform):
                 challenge_id=-1,
             )
 
+    @override
     def submit_flag(self, flag: str) -> t.Union[str, FlagSubmissionResult]:
-        if not isinstance(flag, str):
-            raise ValueError('flag must be a string')
-
         match = re.match(r'[A-Za-z0-9]{2,}\{([A-Za-z0-9-_]{32,})\}', flag)
         if not match:
-            raise ValueError('flag must be in the format .*?{BASE64}')
+            raise ValueError('flag must be in the format PREFIX{BASE64}')
 
         flag = match.group(1)
         if not flag:
