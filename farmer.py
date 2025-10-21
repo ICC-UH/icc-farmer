@@ -259,7 +259,7 @@ def exploit_services(
         )
 
         if SKIP_OUR_TEAM:
-            if platform in ['ailurus']:
+            if PLATFORM in ['ailurus']:
                 try:
                     me: PlatformUser = platform.get_me()
                     if service_detail.team_id == me.team_id:
