@@ -1,4 +1,3 @@
-import concurrent
 import logging
 import os
 import random
@@ -44,10 +43,10 @@ from shared import (
 filename: str
 
 logger: logging.Logger
-session: requests.Session = None
-platform: 'BasePlatform' = None
+session: requests.Session
+platform: 'BasePlatform'
 
-child_procs = set()
+child_procs: set[subprocess.Popen[bytes]] = set()
 child_procs_lock = threading.Lock()
 stop_event = threading.Event()
 
@@ -56,8 +55,8 @@ FLAG_REGEX = re.compile(re.escape(FLAG_PREFIX) + r'[A-Za-z0-9_\-+=/\.]{32,128}\}
 
 def insert_flag(flag: Flag):
     try:
-        with sqlite3.connect(DATABASE_PATH, timeout=10) as conn:
-            conn.execute(
+        with sqlite3.connect(DATABASE_PATH, timeout=8) as conn:
+            _ = conn.execute(
                 """
                 INSERT INTO flags (team_id, team_name, challenge_id, challenge_name, flag, status)
                 VALUES (?, ?, ?, ?, ?, ?)
@@ -80,18 +79,18 @@ def insert_flag(flag: Flag):
         logger.error(f'\tError inserting flag into database: {e}')
 
 
-def register_child(proc: subprocess.Popen) -> None:
+def register_child(proc: subprocess.Popen[bytes]) -> None:
     with child_procs_lock:
         child_procs.add(proc)
 
 
-def unregister_child(proc: subprocess.Popen) -> None:
+def unregister_child(proc: subprocess.Popen[bytes]) -> None:
     with child_procs_lock:
         child_procs.discard(proc)
 
 
 # WHAT THE FUCK? So mANY neSTED TRY CAtCH
-def terminate_child(proc: subprocess.Popen):
+def terminate_child(proc: subprocess.Popen[bytes]):
     # Try to kill the whole process group (so grandchildren die too).
     try:
         if proc.poll() is None:
@@ -104,6 +103,7 @@ def terminate_child(proc: subprocess.Popen):
                         time.sleep(0.2)
                     except Exception:
                         pass
+
                     if proc.poll() is None:
                         proc.kill()
                 else:
@@ -122,7 +122,7 @@ def terminate_child(proc: subprocess.Popen):
         unregister_child(proc)
 
 
-def terminate_childrens():
+def terminate_childs():
     logger.info('Terminating all child processes...')
     with child_procs_lock:
         procs = list(child_procs)
@@ -136,8 +136,8 @@ def terminate_childrens():
 # TODO: Refactor this to make it more readable. Or maybe not just refactor
 #   this function, but the whole file.
 def run_exploit(
-    ip: str, port: int, filename: str, retries=3, backoff=2
-) -> tuple[bytes, bytes, int, bool]:
+    ip: str, port: int, filename: str, retries: int = 3, backoff: float = 2
+) -> tuple[bytes, bytes, int, bool] | None:
     cwd = os.path.dirname(os.path.abspath(filename)) or None
     file = os.path.basename(filename)
 
@@ -201,6 +201,9 @@ def run_exploit(
             if proc:
                 unregister_child(proc)
 
+    # This will never happen
+    return None
+
 
 @dataclass
 class ServiceDetails:
@@ -213,120 +216,113 @@ class ServiceDetails:
 
 
 def exploit_services(
+    ex: ThreadPoolExecutor,
     teams: list[PlatformTeam] | None,
     challenges: list[PlatformChallenge] | None,
     services: list[PlatformService],
     filename: str,
 ):
-    with ThreadPoolExecutor(max_workers=FARMER_MAX_WORKERS) as ex:
+    futures = {}
+    for service in services:
         try:
-            futures: dict[concurrent.futures.Future, ServiceDetails] = {}
-            for service in services:
-                try:
-                    ip, port_str = service.addresses[0].rsplit(':', 1)
-                    ip = ip
-                    port = int(port_str)
-                except (ValueError, AttributeError):
-                    raise ValueError(
-                        f'Invalid address format: {service.addresses[0]!r}'
-                    )
+            ip, port_str = service.addresses[0].rsplit(':', 1)
+            ip = ip
+            port = int(port_str)
+        except (ValueError, AttributeError):
+            raise ValueError(f'Invalid address format: {service.addresses[0]!r}')
 
-                team_name = 'Unknown Team'
-                if teams:
-                    team_name = next(
-                        (team.name for team in teams if team.id == service.team_id),
-                        'Unknown Team',
-                    )
-
-                challenge_name = 'Unknown Challenge'
-                if challenges:
-                    challenge_name = next(
-                        (
-                            challenge.title
-                            for challenge in challenges
-                            if challenge.id == service.challenge_id
-                        ),
-                        'Unknown Challenge',
-                    )
-
-                service_detail = ServiceDetails(
-                    ip=ip,
-                    port=port,
-                    team_id=service.team_id or -1,
-                    team_name=team_name,
-                    challenge_id=service.challenge_id or -1,
-                    challenge_name=challenge_name,
-                )
-
-                if SKIP_OUR_TEAM:
-                    if platform in ['ailurus']:
-                        me: PlatformUser = platform.get_me()
-                        if service_detail.team_id == me.team_id:
-                            continue
-                    else:
-                        if SKIP_OUR_TEAM_IP in service_detail.ip:
-                            continue
-
-                logger.info(
-                    f'Running exploit against {service_detail.team_name} ({service_detail.team_id}) ({ip}:{port})'
-                )
-
-                fut = ex.submit(run_exploit, ip, port, filename)
-                futures[fut] = service_detail
-
-            for future in as_completed(futures):
-                service_detail = futures[future]
-
-                logger.info(
-                    f'Exploit result from {service_detail.team_name} ({service_detail.team_id}) ({service_detail.ip}:{service_detail.port}):'
-                )
-
-                out, err, code, timeout = future.result()
-                if timeout:
-                    logger.error(f'\tExploit timed out after {FARMER_TIMEOUT} seconds.')
-                    continue
-
-                if code != 0:
-                    if out:
-                        logger.debug('\tstdout:')
-                        for line in out.decode().splitlines():
-                            logger.debug(f'\t\t{line}')
-
-                    if err:
-                        logger.error('\tstderr:')
-                        for line in err.decode().splitlines():
-                            logger.error(f'\t\t{line}')
-
-                    logger.info(f'\tReturn code: {code}')
-                    continue
-
-                flags = FLAG_REGEX.findall(out.decode())
-                if not flags:
-                    logger.warning('\tNo flag found.')
-                    continue
-
-                flags = list(set(flags))
-
-                for flag in flags:
-                    logger.info(f'\tFound flag: {flag}')
-                    insert_flag(
-                        Flag(
-                            team_id=service_detail.team_id,
-                            team_name=service_detail.team_name,
-                            challenge_id=service_detail.challenge_id,
-                            challenge_name=service_detail.challenge_name,
-                            flag=flag,
-                            status=FlagStatus.UNKNOWN,
-                        ),
-                    )
-        except KeyboardInterrupt:
-            logger.info(
-                'Exploitation interrupted by user, cancelling pending exploits...'
+        team_name = 'Unknown Team'
+        if teams:
+            team_name = next(
+                (team.name for team in teams if team.id == service.team_id),
+                'Unknown Team',
             )
-            stop_event.set()
-            terminate_childrens()
-            ex.shutdown(wait=False, cancel_futures=True)
-            raise
+
+        challenge_name = 'Unknown Challenge'
+        if challenges:
+            challenge_name = next(
+                (
+                    challenge.title
+                    for challenge in challenges
+                    if challenge.id == service.challenge_id
+                ),
+                'Unknown Challenge',
+            )
+
+        service_detail = ServiceDetails(
+            ip=ip,
+            port=port,
+            team_id=service.team_id or -1,
+            team_name=team_name,
+            challenge_id=service.challenge_id or -1,
+            challenge_name=challenge_name,
+        )
+
+        if SKIP_OUR_TEAM:
+            if platform in ['ailurus']:
+                try:
+                    me: PlatformUser = platform.get_me()
+                    if service_detail.team_id == me.team_id:
+                        continue
+                except Exception as e:
+                    logger.error(f'Error fetching own team ID: {e}')
+                    continue
+            else:
+                if SKIP_OUR_TEAM_IP in service_detail.ip:
+                    continue
+
+        logger.info(
+            f'Running exploit against {service_detail.team_name} ({service_detail.team_id}) ({ip}:{port})'
+        )
+
+        fut = ex.submit(run_exploit, ip, port, filename)
+        futures[fut] = service_detail
+
+    for future in as_completed(futures):
+        service_detail = futures[future]
+
+        logger.info(
+            f'Exploit result from {service_detail.team_name} ({service_detail.team_id}) ({service_detail.ip}:{service_detail.port}):'
+        )
+
+        out, err, code, timeout = future.result()
+        if timeout:
+            logger.error(f'\tExploit timed out after {FARMER_TIMEOUT} seconds.')
+            continue
+
+        if code != 0:
+            if out:
+                logger.debug('\tstdout:')
+                for line in out.decode().splitlines():
+                    logger.debug(f'\t\t{line}')
+
+            if err:
+                logger.error('\tstderr:')
+                for line in err.decode().splitlines():
+                    logger.error(f'\t\t{line}')
+
+            logger.info(f'\tReturn code: {code}')
+            continue
+
+        flags = FLAG_REGEX.findall(out.decode())
+        if not flags:
+            logger.warning('\tNo flag found.')
+            continue
+
+        flags = list(set(flags))
+
+        for flag in flags:
+            logger.info(f'\tFound flag: {flag}')
+            insert_flag(
+                Flag(
+                    team_id=service_detail.team_id,
+                    team_name=service_detail.team_name,
+                    challenge_id=service_detail.challenge_id,
+                    challenge_name=service_detail.challenge_name,
+                    flag=flag,
+                    status=FlagStatus.UNKNOWN,
+                ),
+            )
 
 
 def main():
@@ -375,16 +371,16 @@ def main():
             )
         except requests.RequestException as e:
             logger.error(f'Network error fetching services: {e}')
-            stop_event.wait(FARMER_WAKE)
+            _ = stop_event.wait(FARMER_WAKE)
             continue
         except ValueError as e:
             logger.error(f'Error fetching services: {e}')
-            stop_event.wait(FARMER_WAKE)
+            _ = stop_event.wait(FARMER_WAKE)
             continue
 
         if not services:
             logger.warning('No services found, retrying after sleep...')
-            stop_event.wait(FARMER_WAKE)
+            _ = stop_event.wait(FARMER_WAKE)
             continue
 
         # what the fuck is this?
@@ -402,7 +398,17 @@ def main():
                     # Best-effort: if we can't set the attribute, skip modifying this service
                     continue
 
-        exploit_services(teams, challenges, services, filename)
+        with ThreadPoolExecutor(max_workers=FARMER_MAX_WORKERS) as ex:
+            try:
+                exploit_services(ex, teams, challenges, services, filename)
+            except KeyboardInterrupt:
+                logger.info(
+                    'Exploitation interrupted by user, cancelling pending exploits...'
+                )
+                stop_event.set()
+                terminate_childs()
+                ex.shutdown(wait=False, cancel_futures=True)
+                raise
 
         if stop_event.is_set():
             break
