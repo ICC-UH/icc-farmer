@@ -7,7 +7,7 @@ import subprocess
 import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from signal import signal
 
@@ -131,20 +131,25 @@ def terminate_childs():
         terminate_child(proc)
 
 
+@dataclass
+class ExploitOutcome:
+    out: bytes
+    err: bytes
+    return_code: int
+    timeout: bool
+
+
 # FIXME: Bad retry concept, because what if the error is different each
 #   time when retrying?
 # TODO: Refactor this to make it more readable. Or maybe not just refactor
 #   this function, but the whole file.
 def run_exploit(
     ip: str, port: int, filename: str, retries: int = 3, backoff: float = 2
-) -> tuple[bytes, bytes, int, bool] | None:
+) -> ExploitOutcome:
     cwd = os.path.dirname(os.path.abspath(filename)) or None
     file = os.path.basename(filename)
 
     for attempt in range(1, retries + 1):
-        if stop_event.is_set():
-            return b'', b'Cancelled', -1, False
-
         proc = None
         out, err = b'', b''
 
@@ -181,28 +186,32 @@ def run_exploit(
                 except Exception:
                     out, err = out or b'', err or b''
 
-                return out, err, -1, True  # Indicate timeout
+                return ExploitOutcome(out, err, -1, True)
 
             rc = proc.returncode
 
-            if attempt < retries and rc != 0:
+            if attempt < retries and not stop_event.is_set() and rc != 0:
                 unregister_child(proc)
-
-                time.sleep(backoff)
+                _ = stop_event.wait(backoff)
                 backoff = min(
                     backoff * 2 + random.uniform(0, 1), 30
                 )  # Exponential backoff with jitter
                 continue
 
-            return out or b'', err or b'', rc, False
+            return ExploitOutcome(out, err, rc, False)
         except Exception as e:
-            return b'', str(e).encode(), -1, False
+            return ExploitOutcome(
+                b'',
+                f'Error running exploit: {e}'.encode(),
+                -1,
+                False,
+            )
         finally:
             if proc:
                 unregister_child(proc)
 
     # This will never happen
-    return None
+    return ExploitOutcome(b'', b'Unknown error', -1, False)
 
 
 @dataclass
@@ -222,7 +231,7 @@ def exploit_services(
     services: list[PlatformService],
     filename: str,
 ):
-    futures = {}
+    futures: dict[Future[ExploitOutcome], ServiceDetails] = {}
     for service in services:
         try:
             ip, port_str = service.addresses[0].rsplit(':', 1)
@@ -285,31 +294,32 @@ def exploit_services(
             f'Exploit result from {service_detail.team_name} ({service_detail.team_id}) ({service_detail.ip}:{service_detail.port}):'
         )
 
-        out, err, code, timeout = future.result()
-        if timeout:
+        result = future.result()
+        if result.timeout:
             logger.error(f'\tExploit timed out after {FARMER_TIMEOUT} seconds.')
             continue
 
-        if code != 0:
-            if out:
+        if result.return_code != 0:
+            if result.out:
                 logger.debug('\tstdout:')
-                for line in out.decode().splitlines():
+                for line in result.out.decode().splitlines():
                     logger.debug(f'\t\t{line}')
 
-            if err:
+            if result.err:
                 logger.error('\tstderr:')
-                for line in err.decode().splitlines():
+                for line in result.err.decode().splitlines():
                     logger.error(f'\t\t{line}')
 
-            logger.info(f'\tReturn code: {code}')
+            logger.info(f'\tReturn code: {result.return_code}')
             continue
 
-        flags = FLAG_REGEX.findall(out.decode())
+        flags = FLAG_REGEX.findall(result.out.decode())
         if not flags:
             logger.warning('\tNo flag found.')
             continue
 
-        flags = list(set(flags))
+        flags: list[str] = list(set(flags))
+        logger.info(f'\tFound {len(flags)} unique flag(s).')
 
         for flag in flags:
             logger.info(f'\tFound flag: {flag}')
@@ -340,20 +350,32 @@ def main():
     teams = None
     challenges = None
 
-    teams = list(platform.list_teams())
-    if teams:
-        logger.info(f'Found {len(teams)} teams.')
-        for team in teams:
-            logger.info(f'\tTeam {team.id}: {team.name}')
+    try:
+        teams = list(platform.list_teams())
+        if teams:
+            logger.info(f'Found {len(teams)} teams.')
+            for team in teams:
+                logger.info(f'\tTeam {team.id}: {team.name}')
+    except requests.RequestException as e:
+        logger.error(f'Network error fetching teams: {e}')
+    except ValueError as e:
+        logger.error(f'Error fetching teams: {e}')
 
     if PLATFORM in ['ailurus']:
-        challenges = list(platform.list_challenges())
-        if challenges:
-            logger.info(f'Found {len(challenges)} challenges.')
-            for challenge in challenges:
-                logger.info(f'\tChallenge {challenge.id}: {challenge.title}')
+        try:
+            challenges = list(platform.list_challenges())
+            if challenges:
+                logger.info(f'Found {len(challenges)} challenges.')
+                for challenge in challenges:
+                    logger.info(f'\tChallenge {challenge.id}: {challenge.title}')
 
-        challenge_id = int(input('Enter challenge ID to target: ').strip())
+            challenge_id = int(input('Enter challenge ID to target: ').strip())
+        except requests.RequestException as e:
+            logger.error(f'Network error fetching challenges: {e}')
+            sys.exit(1)
+        except ValueError as e:
+            logger.error(f'Error fetching challenges: {e}')
+            sys.exit(1)
     else:
         port = int(input('Enter service port to target: ').strip())
 

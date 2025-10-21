@@ -5,19 +5,19 @@ import sqlite3
 from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
 
-PLATFORM = 'wreckit'
-BASE_URL = 'http://127.0.0.1:61006/'
+PLATFORM = 'ailurus'
+BASE_URL = 'http://100.125.231.1:5000/'
 
 USERNAME = ''
 PASSWORD = ''
-TOKEN = 'mock_token_123'  # for ailurus, and WreckIt
+TOKEN = 'eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MTA0MjU2OSwianRpIjoiODNkODA3MzYtNWY5OS00MzE5LTkyMmQtODNjZmI5N2FmNjY4IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6eyJ0ZWFtIjp7ImlkIjoyLCJuYW1lIjoidTIifX0sIm5iZiI6MTc2MTA0MjU2OSwiZXhwIjoxNzYxMDg1NzY5fQ.CjQxDQcxASzwurIQoNOEJZtB8RctJqom_uUB5vqJFBlTK3j0iglFvygek6qiqj7Po7EgKN0nG__Nk54bgqyrSQ'  # for ailurus, and WreckIt
 
-FLAG_PREFIX = 'WRECKIT6{'
+FLAG_PREFIX = 'ICC{'
 CAN_BATCH_SUBMIT_FLAG = False
 SKIP_OUR_TEAM = True
 SKIP_OUR_TEAM_IP = '127.0.0.1'  # for WreckIt
 
-INTERVAL = 60 * 5
+INTERVAL = 60 * 2
 TOTAL_TEAM = 10
 
 FARMER_WAKE = max(8, (INTERVAL // 2) - 8)
