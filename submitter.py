@@ -4,10 +4,10 @@ import sqlite3
 import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 
 import requests
-
 from platforms.platform import BasePlatform, FlagSubmissionResult, get_platform
 from shared import (
     BASE_URL,
@@ -36,9 +36,9 @@ stop_event: threading.Event = threading.Event()
 def update_flag_status(results: list[FlagSubmissionResult]):
     try:
         with sqlite3.connect(DATABASE_PATH, timeout=10) as conn:
-            updated = []
+            updated: list[str] = []
             for result in results:
-                conn.execute(
+                _ = conn.execute(
                     'UPDATE flags SET status=? WHERE flag=?',
                     (result.status, result.flag),
                 )
@@ -53,24 +53,30 @@ def update_flag_status(results: list[FlagSubmissionResult]):
         logger.error(f'\tError updating flag status in database: {e}')
 
 
+@dataclass
+class SubmitOutcome:
+    errors: list[Exception]
+    results: list[FlagSubmissionResult]
+    message: str | None = None
+
+
 # FIXME: Bad retry concept, because what if the error is different each
 #   time when retrying?
 def submit_flags(
     flags: str | list[str], retries: int = 3, backoff: float = 2.0
-) -> (
-    None
-    | tuple[
-        None | Exception | list[Exception],
-        str | FlagSubmissionResult | list[FlagSubmissionResult],
-    ]
-):
+) -> SubmitOutcome:
     exceptions: list[Exception] = []
     for attempt in range(1, retries + 1):
         try:
             if isinstance(flags, str):
-                return None, platform.submit_flag(flags)
+                res = platform.submit_flag(flags)
+            else:
+                res = platform.submit_flags(flags)
 
-            return None, platform.submit_flags(flags)
+            if isinstance(res, str):
+                return SubmitOutcome([], [], res)
+
+            return SubmitOutcome([], res if isinstance(res, list) else [res])
         except requests.RequestException as e:
             status = getattr(e.response, 'status_code', None)
             exceptions.append(e)
@@ -84,72 +90,79 @@ def submit_flags(
                     or (status and 500 <= status < 600)
                 )
             ):
-                stop_event.wait(backoff)
+                _ = stop_event.wait(backoff)
                 backoff = min(
                     backoff * 2 + random.uniform(0, 1), 30
                 )  # Exponential backoff with jitter
                 continue
 
             # For 4xx errors, don't bother retrying - it's our fault
-            return exceptions, FlagSubmissionResult(flag='', status='failed')
+            return SubmitOutcome(exceptions, [])
         except Exception as e:
-            return e, FlagSubmissionResult(flag='', status='failed')
+            exceptions.append(e)
+            return SubmitOutcome(exceptions, [])
 
     # This will never happen
-    return None
+    return SubmitOutcome(exceptions, [])
 
 
 def submit_flags_batch(ex: ThreadPoolExecutor, flags: list[Flag]):
-    futures = {}
+    futures: dict[Future[SubmitOutcome], list[Flag]] = {}
     for i in range(0, len(flags), SUBMITTER_BATCH_SIZE):
+        if stop_event.is_set():
+            break
+
         batch = flags[i : i + SUBMITTER_BATCH_SIZE]
         future = ex.submit(submit_flags, [flag.flag for flag in batch])
         futures[future] = batch
 
-        stop_event.wait(random.uniform(0.05, 0.1))
+        _ = stop_event.wait(random.uniform(0.05, 0.1))
 
     for future in as_completed(futures):
         batch = futures[future]  # May be useful for future? (i mean future not future)
-        message, results = future.result()
+        result: SubmitOutcome = future.result()
 
         logger.info(
             f'Flag submit for Thread {threading.get_ident()} (batch size {len(batch)}):'
         )
 
-        if message:
-            logger.error(f'\tFailed to submit flags: {message}')
+        if result.errors:
+            logger.error(f'\tFailed to submit flags: {result.errors}')
             continue
 
-        if isinstance(results, str):
-            logger.error(f'\tSubmission error: {results}')
+        if result.message is not None:
+            logger.error(f'\tSubmission error: {result.message}')
             continue
 
-        update_flag_status(results)
+        update_flag_status(result.results)
 
 
 def submit_flags_individual(ex: ThreadPoolExecutor, flags: list[Flag]):
-    futures = {}
+    futures: dict[Future[SubmitOutcome], Flag] = {}
     for flag in flags:
+        if stop_event.is_set():
+            break
+
         future = ex.submit(submit_flags, flag.flag)
         futures[future] = flag
 
-        stop_event.wait(random.uniform(0.05, 0.1))
+        _ = stop_event.wait(random.uniform(0.05, 0.1))
 
     for future in as_completed(futures):
         _ = futures[future]  # May be useful for future?
-        message, result = future.result()
+        result = future.result()
 
         logger.info(f'Flag submit for Thread {threading.get_ident()}:')
 
-        if message:
-            logger.error(f'\tFailed to submit flag: {message}')
+        if result.errors:
+            logger.error(f'\tFailed to submit flag: {result.errors}')
             continue
 
-        if isinstance(result, str):
-            logger.error(f'\tSubmission error: {result}')
+        if result.message is not None:
+            logger.error(f'\tSubmission error: {result.message}')
             continue
 
-        update_flag_status([result])
+        update_flag_status(result.results)
 
 
 def main():
@@ -167,7 +180,7 @@ def main():
         while True:
             logger.info('Checking for flags to submit...')
 
-            cursor.execute(
+            _ = cursor.execute(
                 'SELECT * FROM flags WHERE status = ?', (FlagStatus.UNKNOWN,)
             )
             flags = [Flag(*row[1:]) for row in cursor.fetchall()]
@@ -184,7 +197,7 @@ def main():
                             'Submission interrupted by user, cancelling pending submissions...'
                         )
                         stop_event.set()
-                        ex.shutdown(wait=False, cancel_futures=True)
+                        ex.shutdown(wait=True, cancel_futures=True)
             else:
                 logger.info('No flags to submit.')
 
