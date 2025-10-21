@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 import typing as t
 
 from platforms.platform import (
@@ -54,7 +56,7 @@ class Platform(BasePlatform):
             raise ValueError('Invalid token')
 
         sub = payload.get('sub')
-        team = payload.get('team')
+        team = sub.get('team')
         if sub is None or team is None:
             raise ValueError('Invalid token payload')
 
@@ -101,9 +103,6 @@ class Platform(BasePlatform):
 
     @override
     def submit_flag(self, flag: str) -> t.Union[str, FlagSubmissionResult]:
-        if not isinstance(flag, str):
-            raise ValueError('flag must be a string')
-
         res = self.session.post(
             f'{self.base_url}/api/v2/submit', json={'flag': flag}, timeout=5
         )
@@ -122,9 +121,6 @@ class Platform(BasePlatform):
     def submit_flags(
         self, flags: t.List[str]
     ) -> t.Union[str, t.List[FlagSubmissionResult]]:
-        if not isinstance(flags, list):
-            raise ValueError('flags must be a list of strings')
-
         res = self.session.post(
             f'{self.base_url}/api/v2/submit', json={'flags': flags}, timeout=5
         )
@@ -145,9 +141,6 @@ class Platform(BasePlatform):
         ]
 
     def _parse_jwt(self, token: str) -> t.Optional[dict]:
-        import base64
-        import json
-
         try:
             base64_url = token.split('.')[1]
             base64_url += '=' * (-len(base64_url) % 4)  # Pad base64 string
