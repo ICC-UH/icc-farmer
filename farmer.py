@@ -213,8 +213,8 @@ class ServiceDetails:
 
 
 def exploit_services(
-    teams: list[PlatformTeam],
-    challenges: list[PlatformChallenge],
+    teams: list[PlatformTeam] | None,
+    challenges: list[PlatformChallenge] | None,
     services: list[PlatformService],
     filename: str,
 ):
@@ -231,24 +231,31 @@ def exploit_services(
                         f'Invalid address format: {service.addresses[0]!r}'
                     )
 
+                team_name = 'Unknown Team'
+                if teams:
+                    team_name = next(
+                        (team.name for team in teams if team.id == service.team_id),
+                        'Unknown Team',
+                    )
+
+                challenge_name = 'Unknown Challenge'
+                if challenges:
+                    challenge_name = next(
+                        (
+                            challenge.title
+                            for challenge in challenges
+                            if challenge.id == service.challenge_id
+                        ),
+                        'Unknown Challenge',
+                    )
+
                 service_detail = ServiceDetails(
                     ip=ip,
                     port=port,
                     team_id=service.team_id or -1,
-                    team_name=next(
-                        (team.name for team in teams if team.id == service.team_id),
-                        'Unknown Team',
-                    ),
+                    team_name=team_name,
                     challenge_id=service.challenge_id or -1,
-                    # challenge_name=next(
-                    #     (
-                    #         challenge.title
-                    #         for challenge in challenges
-                    #         if challenge.id == service.challenge_id
-                    #     ) if challenges else [],
-                    #     'Unknown Challenge',
-                    # ),
-                    challenge_name='Unknown Challenge',
+                    challenge_name=challenge_name,
                 )
 
                 if SKIP_OUR_TEAM:
@@ -390,7 +397,6 @@ def main():
                     continue
                 # Assign to the attribute rather than using item assignment on the object
                 try:
-                    print(ip_str)
                     setattr(service, 'addresses', [f'{ip_str}:{port}'])
                 except Exception:
                     # Best-effort: if we can't set the attribute, skip modifying this service
@@ -406,7 +412,6 @@ def main():
 
 
 if __name__ == '__main__':
-    # hate this stupid global, but whatever
     if len(sys.argv) < 2:
         print(f'Usage: python3 {sys.argv[0]} exploit.py')
         sys.exit(1)
