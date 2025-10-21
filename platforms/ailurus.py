@@ -8,11 +8,14 @@ from platforms.platform import (
     PlatformChallenge,
     PlatformService,
     PlatformTeam,
+    PlatformUser,
 )
+from typing_extensions import override
 
 
 class Platform(BasePlatform):
-    def login(self) -> t.Union[str, dict]:
+    @override
+    def login(self) -> str:
         if self.token:
             self.session.headers.update({'Authorization': f'Bearer {self.token}'})
             return self.token
@@ -29,11 +32,38 @@ class Platform(BasePlatform):
         if self.token:
             self.session.headers.update({'Authorization': f'Bearer {self.token}'})
 
-        return data
+        return self.token
 
+    @override
     def is_logged_in(self) -> bool:
-        return bool(self.token)
+        if self.session.headers.get('Authorization') is None:
+            return False
 
+        # There is api/v2/token-check/
+        return True
+
+    @override
+    def get_me(self) -> PlatformUser:
+        # We can parse the JWT token to get user info
+        if not self.is_logged_in():
+            raise ValueError('Not logged in')
+
+        token = self.session.headers.get('Authorization').split(' ')[1]
+        payload = self._parse_jwt(token)
+        if payload is None:
+            raise ValueError('Invalid token')
+
+        sub = payload.get('sub')
+        team = payload.get('team')
+        if sub is None or team is None:
+            raise ValueError('Invalid token payload')
+
+        return PlatformUser(
+            team_id=int(team.get('id')),
+            team_name=team.get('name'),
+        )
+
+    @override
     def list_teams(self) -> t.Iterator[PlatformTeam]:
         res = self.session.get(f'{self.base_url}/api/v2/teams', timeout=5)
         res.raise_for_status()
@@ -41,6 +71,7 @@ class Platform(BasePlatform):
         for team in res.json().get('data', []):
             yield PlatformTeam(id=int(team.get('id')), name=team.get('name'))
 
+    @override
     def list_challenges(self) -> t.Iterator[PlatformChallenge]:
         res = self.session.get(f'{self.base_url}/api/v2/challenges', timeout=5)
         res.raise_for_status()
@@ -50,6 +81,7 @@ class Platform(BasePlatform):
                 id=int(challenge.get('id')), title=challenge.get('title')
             )
 
+    @override
     def get_services(self, filter_: dict) -> t.Iterator[PlatformService]:
         if 'challenge_id' not in filter_:
             raise ValueError("filter_ must contain 'challenge_id'")
@@ -67,6 +99,7 @@ class Platform(BasePlatform):
                 team_id=int(team_id),
             )
 
+    @override
     def submit_flag(self, flag: str) -> t.Union[str, FlagSubmissionResult]:
         if not isinstance(flag, str):
             raise ValueError('flag must be a string')
@@ -85,6 +118,7 @@ class Platform(BasePlatform):
 
         return self._process_flag_result(data.get('message', 'unknown'), flag)
 
+    @override
     def submit_flags(
         self, flags: t.List[str]
     ) -> t.Union[str, t.List[FlagSubmissionResult]]:
@@ -109,6 +143,19 @@ class Platform(BasePlatform):
             )
             for flag_data in data.get('data', [])
         ]
+
+    def _parse_jwt(self, token: str) -> t.Optional[dict]:
+        import base64
+        import json
+
+        try:
+            base64_url = token.split('.')[1]
+            base64_url += '=' * (-len(base64_url) % 4)  # Pad base64 string
+            base64_bytes = base64_url.replace('-', '+').replace('_', '/')
+            json_payload = base64.b64decode(base64_bytes).decode('utf-8')
+            return json.loads(json_payload)
+        except Exception:
+            return None
 
     def _process_flag_result(self, verdict: dict, flag: str) -> FlagSubmissionResult:
         status_map = {

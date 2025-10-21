@@ -5,55 +5,31 @@ import sqlite3
 from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
 
-FLAG_PREFIX = 'ICC{'
-CAN_BATCH_SUBMIT = True
+PLATFORM = 'wreckit'
+BASE_URL = 'http://127.0.0.1:61006/'
 
-BASE_URL = 'http://192.168.18.2:5000/'
+USERNAME = ''
+PASSWORD = ''
+TOKEN = 'mock_token_123'  # for ailurus, and WreckIt
 
-INTERVAL = 60 * 2
-TOTAL_TEAM = 3
+FLAG_PREFIX = 'WRECKIT6{'
+CAN_BATCH_SUBMIT_FLAG = False
+SKIP_OUR_TEAM = True
+SKIP_OUR_TEAM_IP = '127.0.0.1'  # for WreckIt
 
-FARMER_WAKE = max(1, (INTERVAL // 2))
-FARMER_TIMEOUT = max(1, (FARMER_WAKE // 2))
+INTERVAL = 60 * 5
+TOTAL_TEAM = 10
+
+FARMER_WAKE = max(8, (INTERVAL // 2) - 8)
+FARMER_TIMEOUT = max(4, (FARMER_WAKE // 2) - 4)
 FARMER_MAX_WORKERS = 2
 
 SUBMITTER_WAKE = max(4, (INTERVAL // TOTAL_TEAM) - 4)
 SUBMITTER_MAX_WORKERS = 4
-SUBMITTER_BATCH_SIZE = min(100, TOTAL_TEAM * 2)
+SUBMITTER_BATCH_SIZE = min(100, TOTAL_TEAM * 2)  # ailurus maximum batch submit is 100
 
 LOGS_PATH = './logs'
-
-PLATFORM = 'ailurus'
-USERNAME = 'u2@test.com'
-PASSWORD = 'GmLkj@d34WGe!vW'
-TOKEN = ''
-
-
-class NormalFormatter(logging.Formatter):
-    def format(self, record):
-        levelname = f'{record.levelname:<8}'  # Pad to width 8
-        record.levelname = f'{levelname}'
-        return super().format(record)
-
-
-class ColoredFormatter(logging.Formatter):
-    COLORS = {
-        'DEBUG': '\033[36m',  # Cyan
-        'INFO': '\033[32m',  # Green
-        'WARNING': '\033[33m',  # Yellow
-        'ERROR': '\033[31m',  # Red
-        'CRITICAL': '\033[41m',  # Red background
-    }
-    RESET = '\033[0m'
-
-    def format(self, record):
-        original_levelname = record.levelname
-        levelname = f'{record.levelname:<8}'  # Pad to width 8
-        color = self.COLORS.get(record.levelname, '')
-        record.levelname = f'{color}{levelname}{self.RESET}'
-        result = super().format(record)
-        record.levelname = original_levelname  # restore for other handlers
-        return result
+DATABASE_PATH = './flags.db'
 
 
 class FlagStatus(str, enum.Enum):
@@ -74,20 +50,31 @@ class Flag:
     status: str = FlagStatus.UNKNOWN
 
 
-def setup_database():
-    with sqlite3.connect('flags.db', timeout=8) as c:
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS flags (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                team_id INTEGER,
-                team_name TEXT,
-                challenge_id INTEGER,
-                challenge_name TEXT,
-                flag TEXT UNIQUE,
-                status TEXT
-            )
-        """)
-        c.commit()
+class NormalFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        levelname = f'{record.levelname:<8}'  # Pad to width 8
+        record.levelname = f'{levelname}'
+        return super().format(record)
+
+
+class ColoredFormatter(logging.Formatter):
+    COLORS = {
+        'DEBUG': '\033[36m',  # Cyan
+        'INFO': '\033[32m',  # Green
+        'WARNING': '\033[33m',  # Yellow
+        'ERROR': '\033[31m',  # Red
+        'CRITICAL': '\033[41m',  # Red background
+    }
+    RESET = '\033[0m'
+
+    def format(self, record: logging.LogRecord) -> str:
+        original_levelname = record.levelname
+        levelname = f'{record.levelname:<8}'  # Pad to width 8
+        color = self.COLORS.get(record.levelname, '')
+        record.levelname = f'{color}{levelname}{self.RESET}'
+        result = super().format(record)
+        record.levelname = original_levelname  # restore for other handlers
+        return result
 
 
 def setup_logging(name: str, filename: str = '') -> logging.Logger:
@@ -114,3 +101,19 @@ def setup_logging(name: str, filename: str = '') -> logging.Logger:
     logger.addHandler(fh)
 
     return logger
+
+
+def setup_database():
+    with sqlite3.connect(DATABASE_PATH, timeout=8) as c:
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS flags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                team_id INTEGER,
+                team_name TEXT,
+                challenge_id INTEGER,
+                challenge_name TEXT,
+                flag TEXT UNIQUE,
+                status TEXT
+            )
+        """)
+        c.commit()

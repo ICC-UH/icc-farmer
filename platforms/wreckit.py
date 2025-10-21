@@ -45,7 +45,6 @@ class Platform(BasePlatform):
             yield PlatformService(
                 addresses=[service.get('host_ip')],
                 team_id=int(service.get('id')),
-                challenge_id=-1,
             )
 
     @override

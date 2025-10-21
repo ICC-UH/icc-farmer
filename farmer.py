@@ -1,3 +1,4 @@
+import concurrent
 import logging
 import os
 import random
@@ -8,19 +9,30 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from signal import signal
 
 import requests
 
-from platforms.platform import BasePlatform, get_platform
+from platforms.platform import (
+    BasePlatform,
+    PlatformChallenge,
+    PlatformService,
+    PlatformTeam,
+    PlatformUser,
+    get_platform,
+)
 from shared import (
     BASE_URL,
+    DATABASE_PATH,
     FARMER_MAX_WORKERS,
     FARMER_TIMEOUT,
     FARMER_WAKE,
     FLAG_PREFIX,
     PASSWORD,
     PLATFORM,
+    SKIP_OUR_TEAM,
+    SKIP_OUR_TEAM_IP,
     TOKEN,
     USERNAME,
     Flag,
@@ -44,7 +56,7 @@ FLAG_REGEX = re.compile(re.escape(FLAG_PREFIX) + r'[A-Za-z0-9_\-+=/\.]{32,128}\}
 
 def insert_flag(flag: Flag):
     try:
-        with sqlite3.connect('flags.db', timeout=10) as conn:
+        with sqlite3.connect(DATABASE_PATH, timeout=10) as conn:
             conn.execute(
                 """
                 INSERT INTO flags (team_id, team_name, challenge_id, challenge_name, flag, status)
@@ -68,8 +80,18 @@ def insert_flag(flag: Flag):
         logger.error(f'\tError inserting flag into database: {e}')
 
 
-def terminate_child(proc: subprocess.Popen):
+def register_child(proc: subprocess.Popen) -> None:
+    with child_procs_lock:
+        child_procs.add(proc)
 
+
+def unregister_child(proc: subprocess.Popen) -> None:
+    with child_procs_lock:
+        child_procs.discard(proc)
+
+
+# WHAT THE FUCK? So mANY neSTED TRY CAtCH
+def terminate_child(proc: subprocess.Popen):
     # Try to kill the whole process group (so grandchildren die too).
     try:
         if proc.poll() is None:
@@ -91,12 +113,14 @@ def terminate_child(proc: subprocess.Popen):
                 try:
                     proc.kill()
                 except Exception:
-                    logger.debug('Could not kill child pid=%s', getattr(proc, 'pid', None))
+                    logger.debug(
+                        'Could not kill child pid=%s', getattr(proc, 'pid', None)
+                    )
     except Exception:
         logger.debug('Error while terminating child pid=%s', getattr(proc, 'pid', None))
     finally:
-        with child_procs_lock:
-            child_procs.discard(proc)
+        unregister_child(proc)
+
 
 def terminate_childrens():
     logger.info('Terminating all child processes...')
@@ -122,10 +146,10 @@ def run_exploit(
             return b'', b'Cancelled', -1, False
 
         proc = None
-        out, err = b"", b""
+        out, err = b'', b''
 
         try:
-            if os.name == "nt":
+            if os.name == 'nt':
                 proc = subprocess.Popen(
                     [sys.executable, file, ip, str(port)],
                     stdout=subprocess.PIPE,
@@ -142,8 +166,7 @@ def run_exploit(
                     preexec_fn=os.setsid,
                 )
 
-            with child_procs_lock:
-                child_procs.add(proc)
+            register_child(proc)
 
             try:
                 out, err = proc.communicate(timeout=FARMER_TIMEOUT)
@@ -156,16 +179,14 @@ def run_exploit(
                 try:
                     out, err = proc.communicate(timeout=5)
                 except Exception:
-                    out, err = out or b"", err or b""
+                    out, err = out or b'', err or b''
 
                 return out, err, -1, True  # Indicate timeout
-            
+
             rc = proc.returncode
 
             if attempt < retries and rc != 0:
-                with child_procs_lock:
-                    if proc in child_procs:
-                        child_procs.remove(proc)
+                unregister_child(proc)
 
                 time.sleep(backoff)
                 backoff = min(
@@ -173,85 +194,85 @@ def run_exploit(
                 )  # Exponential backoff with jitter
                 continue
 
-            return out or b"", err or b"", rc, False
+            return out or b'', err or b'', rc, False
         except Exception as e:
             return b'', str(e).encode(), -1, False
         finally:
             if proc:
-                with child_procs_lock:
-                    child_procs.discard(proc)
+                unregister_child(proc)
 
 
-def parse_address(address: str) -> tuple[str, int]:
-    try:
-        ip, port_str = address.rsplit(":", 1)
-        return ip, int(port_str)
-    except (ValueError, AttributeError):
-        raise ValueError(f"Invalid address format: {address!r}")
+@dataclass
+class ServiceDetails:
+    ip: str
+    port: int
+    team_id: int
+    team_name: str
+    challenge_id: int
+    challenge_name: str
 
 
-def parse_details(
-    details: dict, teams: list[dict], challenges: list[dict]
-) -> tuple[int, str, int, str]:
-    team_id = int(details.get("team_id", 0))
-    team_name = details.get("team_name") or next(
-        (t["name"] for t in teams if int(t["id"]) == team_id),
-        "unknown",
-    )
-
-    challenge_id = int(details.get("challenge_id", 0))
-    challenge_name = details.get("challenge_name") or next(
-        (c["title"] for c in challenges if int(c["id"]) == challenge_id),
-        "unknown",
-    )
-
-    return team_id, team_name, challenge_id, challenge_name
-
-
-def print_process_output(out: bytes, err: bytes, code: int):
-    if out:
-        logger.debug('\tstdout:')
-        for line in out.decode().splitlines():
-            logger.debug(f'\t\t\t{line}')
-
-    if err:
-        logger.error('\tstderr:')
-        for line in err.decode().splitlines():
-            logger.error(f'\t\t{line}')
-
-    logger.info(f'\tReturn code: {code}')
-
-
-def exploit_services(teams, challenges, services: list[dict], filename: str):
+def exploit_services(
+    teams: list[PlatformTeam],
+    challenges: list[PlatformChallenge],
+    services: list[PlatformService],
+    filename: str,
+):
     with ThreadPoolExecutor(max_workers=FARMER_MAX_WORKERS) as ex:
         try:
-            futures = {}
+            futures: dict[concurrent.futures.Future, ServiceDetails] = {}
             for service in services:
-                ip, port = parse_address(service['addresses'][0])
-                team_id, team_name, challenge_id, challenge_name = parse_details(
-                    service, teams, challenges
+                try:
+                    ip, port_str = service.addresses[0].rsplit(':', 1)
+                    ip = ip
+                    port = int(port_str)
+                except (ValueError, AttributeError):
+                    raise ValueError(
+                        f'Invalid address format: {service.addresses[0]!r}'
+                    )
+
+                service_detail = ServiceDetails(
+                    ip=ip,
+                    port=port,
+                    team_id=service.team_id or -1,
+                    team_name=next(
+                        (team.name for team in teams if team.id == service.team_id),
+                        'Unknown Team',
+                    ),
+                    challenge_id=service.challenge_id or -1,
+                    # challenge_name=next(
+                    #     (
+                    #         challenge.title
+                    #         for challenge in challenges
+                    #         if challenge.id == service.challenge_id
+                    #     ) if challenges else [],
+                    #     'Unknown Challenge',
+                    # ),
+                    challenge_name='Unknown Challenge',
                 )
 
-                # Don't attack ourselves?
-                # if team_id == 3:
-                #     continue
+                if SKIP_OUR_TEAM:
+                    if platform in ['ailurus']:
+                        me: PlatformUser = platform.get_me()
+                        if service_detail.team_id == me.team_id:
+                            continue
+                    else:
+                        if SKIP_OUR_TEAM_IP in service_detail.ip:
+                            continue
 
                 logger.info(
-                    f'Running exploit against {team_name} ({team_id}) ({ip}:{port})'
+                    f'Running exploit against {service_detail.team_name} ({service_detail.team_id}) ({ip}:{port})'
                 )
 
                 fut = ex.submit(run_exploit, ip, port, filename)
-                futures[fut] = service
+                futures[fut] = service_detail
 
             for future in as_completed(futures):
-                service = futures[future]
+                service_detail = futures[future]
 
-                ip, port = parse_address(service['addresses'][0])
-                team_id, team_name, challenge_id, challenge_name = parse_details(
-                    service, teams, challenges
+                logger.info(
+                    f'Exploit result from {service_detail.team_name} ({service_detail.team_id}) ({service_detail.ip}:{service_detail.port}):'
                 )
-
-                logger.info(f'Exploit result from {team_name} ({team_id}) ({ip}:{port}):')
 
                 out, err, code, timeout = future.result()
                 if timeout:
@@ -259,7 +280,17 @@ def exploit_services(teams, challenges, services: list[dict], filename: str):
                     continue
 
                 if code != 0:
-                    print_process_output(out, err, code)
+                    if out:
+                        logger.debug('\tstdout:')
+                        for line in out.decode().splitlines():
+                            logger.debug(f'\t\t{line}')
+
+                    if err:
+                        logger.error('\tstderr:')
+                        for line in err.decode().splitlines():
+                            logger.error(f'\t\t{line}')
+
+                    logger.info(f'\tReturn code: {code}')
                     continue
 
                 flags = FLAG_REGEX.findall(out.decode())
@@ -273,50 +304,58 @@ def exploit_services(teams, challenges, services: list[dict], filename: str):
                     logger.info(f'\tFound flag: {flag}')
                     insert_flag(
                         Flag(
-                            team_id=team_id,
-                            team_name=team_name,
-                            challenge_id=challenge_id,
-                            challenge_name=challenge_name,
+                            team_id=service_detail.team_id,
+                            team_name=service_detail.team_name,
+                            challenge_id=service_detail.challenge_id,
+                            challenge_name=service_detail.challenge_name,
                             flag=flag,
                             status=FlagStatus.UNKNOWN,
                         ),
                     )
         except KeyboardInterrupt:
-            logger.info('Exploitation interrupted by user, cancelling pending exploits...')
+            logger.info(
+                'Exploitation interrupted by user, cancelling pending exploits...'
+            )
             stop_event.set()
-            terminate_all_children()
+            terminate_childrens()
             ex.shutdown(wait=False, cancel_futures=True)
             raise
 
 
 def main():
     try:
-        platform.login()
+        _ = platform.login()
         logger.info(f'Logged in, token: {platform.token}')
     except requests.HTTPError as e:
         logger.critical(f'Failed to log in: {e}')
         sys.exit(1)
 
+    # i hate this..
     challenge_id = -1
     port = -1
+
+    teams = None
+    challenges = None
 
     teams = list(platform.list_teams())
     if teams:
         logger.info(f'Found {len(teams)} teams.')
         for team in teams:
-            logger.info(f'\tTeam {team["id"]}: {team["name"]}')
+            logger.info(f'\tTeam {team.id}: {team.name}')
 
-    challenges = list(platform.list_challenges())
-    if challenges:
-        logger.info(f'Found {len(challenges)} challenges.')
-        for challenge in challenges:
-            logger.info(f'\tChallenge {challenge["id"]}: {challenge["title"]}')
+    if PLATFORM in ['ailurus']:
+        challenges = list(platform.list_challenges())
+        if challenges:
+            logger.info(f'Found {len(challenges)} challenges.')
+            for challenge in challenges:
+                logger.info(f'\tChallenge {challenge.id}: {challenge.title}')
 
         challenge_id = int(input('Enter challenge ID to target: ').strip())
     else:
         port = int(input('Enter service port to target: ').strip())
 
     while True:
+        # also hate this stupid code
         try:
             services = list(
                 platform.get_services(
@@ -341,11 +380,21 @@ def main():
             stop_event.wait(FARMER_WAKE)
             continue
 
+        # what the fuck is this?
         if challenge_id == -1:
             for service in services:
-                service['addresses'] = [
-                    f'{service["addresses"][0].split(":")[0]}:{port}'
-                ]
+                try:
+                    ip_str = service.addresses[0].rsplit(':', 1)[0]
+                except (ValueError, AttributeError, IndexError):
+                    # If the address is malformed or missing, skip modifying this service
+                    continue
+                # Assign to the attribute rather than using item assignment on the object
+                try:
+                    print(ip_str)
+                    setattr(service, 'addresses', [f'{ip_str}:{port}'])
+                except Exception:
+                    # Best-effort: if we can't set the attribute, skip modifying this service
+                    continue
 
         exploit_services(teams, challenges, services, filename)
 
@@ -373,8 +422,9 @@ if __name__ == '__main__':
     session = requests.Session()
     platform = get_platform(PLATFORM, session, BASE_URL, USERNAME, PASSWORD, TOKEN)
 
+    setup_database()
+
     try:
-        setup_database()
         main()
     except KeyboardInterrupt:
         logger.info('Received keyboard interrupt, stopping...')

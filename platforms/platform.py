@@ -8,6 +8,14 @@ import requests
 
 
 @dataclass
+class PlatformUser:
+    id: t.Optional[int] = None
+    username: t.Optional[str] = None
+    team_id: t.Optional[int] = None
+    team_name: t.Optional[str] = None
+
+
+@dataclass
 class PlatformTeam:
     id: int
     name: str
@@ -22,8 +30,8 @@ class PlatformChallenge:
 @dataclass
 class PlatformService:
     addresses: t.List[str]
-    challenge_id: int
-    team_id: int
+    challenge_id: t.Optional[int] = None
+    team_id: t.Optional[int] = None
 
 
 @dataclass
@@ -49,12 +57,16 @@ class BasePlatform:
         self.password = password
         self.token = token
 
-    def login(self) -> t.Union[str, dict]:
+    def login(self) -> str:
         """Authenticate and return token/data."""
         raise NotImplementedError()
 
     def is_logged_in(self) -> bool:
         """Check if the current session is authenticated."""
+        raise NotImplementedError()
+
+    def get_me(self) -> PlatformUser:
+        """Get information about the current user."""
         raise NotImplementedError()
 
     def list_teams(self) -> t.Iterator[PlatformTeam]:
