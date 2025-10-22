@@ -53,20 +53,18 @@ class Platform(BasePlatform):
         if not match:
             raise ValueError('flag must be in the format PREFIX{BASE64}')
 
-        flag = match.group(2)
-        if not flag:
+        flag_content = match.group(2)
+        if not flag_content:
             raise ValueError('base64 flag is empty')
 
-        print(flag)
-
-        res = self.session.post(f'{self.base_url}/api/flag', json={'flag': flag}, timeout=5)
+        res = self.session.post(f'{self.base_url}/api/flag', json={'flag': flag_content}, timeout=5)
         data = res.json()
 
         # Only raise for server errors
         if 500 <= res.status_code < 600:
             res.raise_for_status()
 
-        return self._process_flag_result(data.get('message', 'unknown'), f'{match.group()}')
+        return self._process_flag_result(data.get('message', 'unknown'), f'{flag}')
 
     def _process_flag_result(self, verdict: dict, flag: str) -> FlagSubmissionResult:
         status_map = {
