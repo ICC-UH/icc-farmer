@@ -73,7 +73,7 @@ def insert_flag(flag: Flag):
             conn.commit()
 
         logger.info(f'\tInserted flag {flag.flag} into the database.')
-    except sqlite3.IntegrityError:
+    except sqlite3.IntegrityError as e:
         logger.debug(f'\tFlag {flag.flag} already exists in the database.')
     except Exception as e:
         logger.error(f'\tError inserting flag into database: {e}')
@@ -430,7 +430,6 @@ def main():
                 stop_event.set()
                 terminate_childs()
                 ex.shutdown(wait=False, cancel_futures=True)
-                raise
 
         if stop_event.is_set():
             break

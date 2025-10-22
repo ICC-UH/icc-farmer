@@ -5,26 +5,26 @@ import sqlite3
 from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
 
-PLATFORM = 'ailurus'
-BASE_URL = 'http://100.125.231.1:5000/'
+PLATFORM = 'wreckit'
+BASE_URL = 'https://wreckit-api.siberlab.id/'
 
 USERNAME = ''
 PASSWORD = ''
-TOKEN = 'eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MTA0MjU2OSwianRpIjoiODNkODA3MzYtNWY5OS00MzE5LTkyMmQtODNjZmI5N2FmNjY4IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6eyJ0ZWFtIjp7ImlkIjoyLCJuYW1lIjoidTIifX0sIm5iZiI6MTc2MTA0MjU2OSwiZXhwIjoxNzYxMDg1NzY5fQ.CjQxDQcxASzwurIQoNOEJZtB8RctJqom_uUB5vqJFBlTK3j0iglFvygek6qiqj7Po7EgKN0nG__Nk54bgqyrSQ'  # for ailurus, and WreckIt
+TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MTEwMjk0MywianRpIjoiMTIxNDExMmUtYTM2OC00ZGNmLWEzZmUtZTUyNjIxOWQ4YjQ0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IklDQyBaMk0iLCJuYmYiOjE3NjExMDI5NDMsImNzcmYiOiI3Nzc2ZDZlZi01OWZhLTQ3NjQtODAxNC1mNmRlMTAyYjkxODciLCJleHAiOjE3NjExODkzNDN9.7-otID9i2XjyPY1MDSF8z4vMqBYo-ff7kUP_fBoBwH0'  # for ailurus, and WreckIt
 
-FLAG_PREFIX = 'ICC{'
+FLAG_PREFIX = 'WRECKIT6{'
 CAN_BATCH_SUBMIT_FLAG = False
 SKIP_OUR_TEAM = True
-SKIP_OUR_TEAM_IP = '127.0.0.1'  # for WreckIt
+SKIP_OUR_TEAM_IP = '18.141.207.253'  # for WreckIt
 
-INTERVAL = 60 * 2
+INTERVAL = 60 * 5
 TOTAL_TEAM = 10
 
 FARMER_WAKE = max(8, (INTERVAL // 2) - 8)
 FARMER_TIMEOUT = max(4, (FARMER_WAKE // 2) - 4)
 FARMER_MAX_WORKERS = 2
 
-SUBMITTER_WAKE = max(4, (INTERVAL // TOTAL_TEAM) - 4)
+SUBMITTER_WAKE = 1#max(4, (INTERVAL // TOTAL_TEAM) - 4)
 SUBMITTER_MAX_WORKERS = 4
 SUBMITTER_BATCH_SIZE = min(100, TOTAL_TEAM * 2)  # ailurus maximum batch submit is 100
 
@@ -112,7 +112,7 @@ def setup_database():
                 team_name TEXT,
                 challenge_id INTEGER,
                 challenge_name TEXT,
-                flag TEXT UNIQUE,
+                flag TEXT,
                 status TEXT
             )
         """)

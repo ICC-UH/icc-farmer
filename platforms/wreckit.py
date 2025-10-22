@@ -49,26 +49,30 @@ class Platform(BasePlatform):
 
     @override
     def submit_flag(self, flag: str) -> t.Union[str, FlagSubmissionResult]:
-        match = re.match(r'[A-Za-z0-9]{2,}\{([A-Za-z0-9-_]{32,})\}', flag)
+        match = re.match(r'([A-Za-z0-9]{2,})\{([A-Za-z0-9-_]{32,})\}', flag)
         if not match:
             raise ValueError('flag must be in the format PREFIX{BASE64}')
 
-        flag = match.group(1)
+        flag = match.group(2)
         if not flag:
             raise ValueError('base64 flag is empty')
 
-        res = self.session.post(f'{self.base_url}/flag', json={'flag': flag}, timeout=5)
+        print(flag)
+
+        res = self.session.post(f'{self.base_url}/api/flag', json={'flag': flag}, timeout=5)
         data = res.json()
 
         # Only raise for server errors
         if 500 <= res.status_code < 600:
             res.raise_for_status()
 
-        return self._process_flag_result(data.get('message', 'unknown'), flag)
+        return self._process_flag_result(data.get('message', 'unknown'), f'{match.group()}')
 
     def _process_flag_result(self, verdict: dict, flag: str) -> FlagSubmissionResult:
         status_map = {
             'Flag submitted successfully': 'accepted',
+            'Invalid flag': 'rejected',
+            'Flag has already been submitted': 'already_submitted',
         }
         return FlagSubmissionResult(
             flag=flag, status=status_map.get(verdict, 'unknown')
