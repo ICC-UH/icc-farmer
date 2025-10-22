@@ -39,8 +39,8 @@ def update_flag_status(results: list[FlagSubmissionResult]):
             updated: list[str] = []
             for result in results:
                 _ = conn.execute(
-                    'UPDATE flags SET status=? WHERE flag=?',
-                    (result.status, result.flag),
+                    'UPDATE flags SET status=? WHERE flag=? AND status=?',
+                    (result.status, result.flag, FlagStatus.UNKNOWN)
                 )
                 updated.append(f'{result.flag}-{result.status}')
 
