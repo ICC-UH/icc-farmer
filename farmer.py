@@ -73,7 +73,7 @@ def insert_flag(flag: Flag):
             conn.commit()
 
         logger.info(f'\tInserted flag {flag.flag} into the database.')
-    except sqlite3.IntegrityError as e:
+    except sqlite3.IntegrityError:
         logger.debug(f'\tFlag {flag.flag} already exists in the database.')
     except Exception as e:
         logger.error(f'\tError inserting flag into database: {e}')
@@ -144,7 +144,7 @@ class ExploitOutcome:
 # TODO: Refactor this to make it more readable. Or maybe not just refactor
 #   this function, but the whole file.
 def run_exploit(
-    ip: str, port: int, filename: str, retries: int = 3, backoff: float = 2
+    ip: str, port: int, filename: str, retries: int = 1, backoff: float = 2
 ) -> ExploitOutcome:
     cwd = os.path.dirname(os.path.abspath(filename)) or None
     file = os.path.basename(filename)

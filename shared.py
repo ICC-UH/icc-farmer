@@ -30,8 +30,9 @@ SUBMITTER_WAKE = 1  # max(4, (INTERVAL // TOTAL_TEAM) - 4)
 SUBMITTER_MAX_WORKERS = 4
 SUBMITTER_BATCH_SIZE = min(100, TOTAL_TEAM * 2)  # ailurus maximum batch submit is 100
 
-LOGS_PATH = './logs'
-DATABASE_PATH = './flags.db'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+LOGS_PATH = os.path.join(BASE_DIR, 'logs')
+DATABASE_PATH = os.path.join(BASE_DIR, 'flags.db')
 
 
 class FlagStatus(str, enum.Enum):
@@ -50,6 +51,7 @@ class Flag:
     challenge_name: str
     flag: str
     status: str = FlagStatus.UNKNOWN
+    timestamp: str = ''
 
 
 class NormalFormatter(logging.Formatter):
@@ -92,8 +94,11 @@ def setup_logging(name: str, filename: str = '') -> logging.Logger:
     logger.setLevel(logging.DEBUG)
     logger.propagate = False
 
+    log_fmt = '[%(asctime)s] - %(levelname)s - %(message)s'
+    datefmt = '%Y-%m-%d %H:%M:%S'
+
     ch = logging.StreamHandler()
-    ch.setFormatter(ColoredFormatter('%(levelname)s - %(message)s'))
+    ch.setFormatter(ColoredFormatter(log_fmt, datefmt=datefmt))
     logger.addHandler(ch)
 
     fh = RotatingFileHandler(
@@ -101,7 +106,7 @@ def setup_logging(name: str, filename: str = '') -> logging.Logger:
         maxBytes=5 * 1024 * 1024,
         backupCount=3,
     )
-    fh.setFormatter(NormalFormatter('%(levelname)s - %(message)s'))
+    fh.setFormatter(NormalFormatter(log_fmt, datefmt=datefmt))
     logger.addHandler(fh)
 
     return logger
@@ -117,7 +122,8 @@ def setup_database():
                 challenge_id INTEGER,
                 challenge_name TEXT,
                 flag TEXT,
-                status TEXT
+                status TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
         c.commit()

@@ -35,12 +35,12 @@ stop_event: threading.Event = threading.Event()
 
 def update_flag_status(results: list[FlagSubmissionResult]):
     try:
-        with sqlite3.connect(DATABASE_PATH, timeout=10) as conn:
+        with sqlite3.connect(DATABASE_PATH, timeout=8) as conn:
             updated: list[str] = []
             for result in results:
                 _ = conn.execute(
                     'UPDATE flags SET status=? WHERE flag=? AND status=?',
-                    (result.status, result.flag, FlagStatus.UNKNOWN)
+                    (result.status, result.flag, FlagStatus.UNKNOWN),
                 )
                 updated.append(f'{result.flag}-{result.status}')
 
@@ -116,7 +116,7 @@ def submit_flags_batch(ex: ThreadPoolExecutor, flags: list[Flag]):
         future = ex.submit(submit_flags, [flag.flag for flag in batch])
         futures[future] = batch
 
-        _ = stop_event.wait(random.uniform(0.05, 0.1))
+        _ = stop_event.wait(random.uniform(0.1, 0.25))
 
     for future in as_completed(futures):
         batch = futures[future]  # May be useful for future? (i mean future not future)
@@ -146,7 +146,7 @@ def submit_flags_individual(ex: ThreadPoolExecutor, flags: list[Flag]):
         future = ex.submit(submit_flags, flag.flag)
         futures[future] = flag
 
-        _ = stop_event.wait(random.uniform(0.05, 0.1))
+        _ = stop_event.wait(random.uniform(0.1, 0.25))
 
     for future in as_completed(futures):
         _ = futures[future]  # May be useful for future?
@@ -183,9 +183,10 @@ def main():
             _ = cursor.execute(
                 'SELECT * FROM flags WHERE status = ?', (FlagStatus.UNKNOWN,)
             )
-            flags = [Flag(*row[1:]) for row in cursor.fetchall()]
+            flags = [Flag(*row[1:]) for row in cursor.fetchall()]  # pyright: ignore[reportAny]
 
             if flags:
+                logger.info(f'Found {len(flags)} flags to submit.')
                 with ThreadPoolExecutor(max_workers=SUBMITTER_MAX_WORKERS) as ex:
                     try:
                         if CAN_BATCH_SUBMIT_FLAG:
@@ -197,7 +198,11 @@ def main():
                             'Submission interrupted by user, cancelling pending submissions...'
                         )
                         stop_event.set()
-                        ex.shutdown(wait=True, cancel_futures=True)
+                        try:
+                            ex.shutdown(wait=True, cancel_futures=True)
+                        except TypeError:
+                            # For Python versions < 3.9 which do not support cancel_futures
+                            ex.shutdown(wait=True)
             else:
                 logger.info('No flags to submit.')
 

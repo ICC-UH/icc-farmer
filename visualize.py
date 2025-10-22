@@ -17,7 +17,7 @@ def main():
     cursor = conn.cursor()
 
     cursor.execute(
-        'SELECT team_id, team_name, challenge_id, challenge_name, flag, status FROM flags'
+        'SELECT team_id, team_name, challenge_id, challenge_name, flag, status, timestamp FROM flags'
     )
     rows = cursor.fetchall()
 
@@ -29,6 +29,7 @@ def main():
             challenge_name=row[3],
             flag=row[4],
             status=row[5],
+            timestamp=row[6],
         )
         for row in rows
     ]
@@ -44,6 +45,8 @@ def main():
         flags.sort(key=lambda f: f.challenge_name)
     elif args.sort == 'status':
         flags.sort(key=lambda f: f.status)
+    elif args.sort == 'timestamp':
+        flags.sort(key=lambda f: f.timestamp)
 
     # Prepare data for simple table
     headers = [
@@ -53,6 +56,7 @@ def main():
         'Challenge Name',
         'Flag',
         'Status',
+        'Timestamp'
     ]
     col_widths = [len(h) for h in headers]
     for f in flags:
@@ -63,6 +67,7 @@ def main():
             f.challenge_name,
             f.flag,
             f.status,
+            f.timestamp
         ]
         col_widths = [max(w, len(v)) for w, v in zip(col_widths, values)]
 
@@ -79,6 +84,7 @@ def main():
             f.challenge_name,
             f.flag,
             f.status,
+            f.timestamp
         ]
         print(format_row(row))
 
