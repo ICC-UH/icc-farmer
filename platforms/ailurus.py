@@ -46,7 +46,6 @@ class Platform(BasePlatform):
 
     @override
     def get_me(self) -> PlatformUser:
-        # We can parse the JWT token to get user info
         if not self.is_logged_in():
             raise ValueError('Not logged in')
 

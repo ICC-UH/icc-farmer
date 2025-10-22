@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 import re
 import typing as t
 
@@ -57,7 +59,9 @@ class Platform(BasePlatform):
         if not flag_content:
             raise ValueError('base64 flag is empty')
 
-        res = self.session.post(f'{self.base_url}/api/flag', json={'flag': flag_content}, timeout=5)
+        res = self.session.post(
+            f'{self.base_url}/api/flag', json={'flag': flag_content}, timeout=5
+        )
         data = res.json()
 
         # Only raise for server errors
@@ -65,6 +69,16 @@ class Platform(BasePlatform):
             res.raise_for_status()
 
         return self._process_flag_result(data.get('message', 'unknown'), f'{flag}')
+
+    def _parse_jwt(self, token: str) -> t.Optional[dict]:
+        try:
+            base64_url = token.split('.')[1]
+            base64_url += '=' * (-len(base64_url) % 4)  # Pad base64 string
+            base64_bytes = base64_url.replace('-', '+').replace('_', '/')
+            json_payload = base64.b64decode(base64_bytes).decode('utf-8')
+            return json.loads(json_payload)
+        except Exception:
+            return None
 
     def _process_flag_result(self, verdict: dict, flag: str) -> FlagSubmissionResult:
         status_map = {
