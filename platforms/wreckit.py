@@ -10,6 +10,7 @@ from platforms.platform import (
     FlagSubmissionResult,
     PlatformService,
     PlatformTeam,
+    PlatformUser,
 )
 from typing_extensions import override
 
@@ -29,6 +30,25 @@ class Platform(BasePlatform):
             return False
 
         return True
+
+    @override
+    def get_me(self) -> PlatformUser:
+        if not self.is_logged_in():
+            raise ValueError('Not logged in')
+
+        token = self.session.headers.get('Authorization').split(' ')[1]
+        payload = self._parse_jwt(token)
+        if payload is None:
+            raise ValueError('Invalid token')
+
+        sub = payload.get('sub')
+        if sub is None:
+            raise ValueError('Invalid token payload')
+
+        return PlatformUser(
+            team_id=-1,
+            team_name=sub,
+        )
 
     @override
     def list_teams(self) -> t.Iterator[PlatformTeam]:
