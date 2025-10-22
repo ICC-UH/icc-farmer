@@ -5,6 +5,8 @@ import sqlite3
 from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
 
+from typing_extensions import override
+
 PLATFORM = 'wreckit'
 BASE_URL = 'https://wreckit-api.siberlab.id/'
 
@@ -51,6 +53,7 @@ class Flag:
 
 
 class NormalFormatter(logging.Formatter):
+    @override
     def format(self, record: logging.LogRecord) -> str:
         levelname = f'{record.levelname:<8}'  # Pad to width 8
         record.levelname = f'{levelname}'
@@ -58,15 +61,16 @@ class NormalFormatter(logging.Formatter):
 
 
 class ColoredFormatter(logging.Formatter):
-    COLORS = {
+    COLORS: dict[str, str] = {
         'DEBUG': '\033[36m',  # Cyan
         'INFO': '\033[32m',  # Green
         'WARNING': '\033[33m',  # Yellow
         'ERROR': '\033[31m',  # Red
         'CRITICAL': '\033[41m',  # Red background
     }
-    RESET = '\033[0m'
+    RESET: str = '\033[0m'
 
+    @override
     def format(self, record: logging.LogRecord) -> str:
         original_levelname = record.levelname
         levelname = f'{record.levelname:<8}'  # Pad to width 8
@@ -105,7 +109,7 @@ def setup_logging(name: str, filename: str = '') -> logging.Logger:
 
 def setup_database():
     with sqlite3.connect(DATABASE_PATH, timeout=8) as c:
-        c.execute("""
+        _ = c.execute("""
             CREATE TABLE IF NOT EXISTS flags (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 team_id INTEGER,
