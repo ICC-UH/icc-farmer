@@ -205,9 +205,7 @@ def main():
                             # For Python versions < 3.9 which do not support cancel_futures
                             ex.shutdown(wait=True)
 
-                logger.info(
-                    f'Sleeping for {SUBMITTER_WAKE} seconds before next submission...'
-                )
+                logger.info('Waiting for next submission...')
             # else:
             #     logger.info('No flags to submit.')
 

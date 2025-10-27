@@ -66,7 +66,9 @@ class Platform(BasePlatform):
 
         for challenge in res.json():
             yield PlatformChallenge(
-                id=int(challenge.get('id')), title=challenge.get('title'), port=challenge.get('port')
+                id=int(challenge.get('id')),
+                title=challenge.get('title'),
+                port=challenge.get('port'),
             )
 
     @override

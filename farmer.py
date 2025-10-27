@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from signal import signal
 
 import requests
-
 from platforms.platform import (
     BasePlatform,
     PlatformChallenge,
@@ -254,7 +253,7 @@ def exploit_services(
                 (
                     challenge.title
                     for challenge in challenges
-                    if challenge.id == service.challenge_id
+                    if challenge.id == service.challenge_id or challenge.port == port
                 ),
                 'Unknown Challenge',
             )
@@ -276,6 +275,14 @@ def exploit_services(
                         continue
                 except Exception as e:
                     logger.error(f'Error fetching own team ID: {e}')
+                    continue
+            elif PLATFORM in ['gemastik25']:
+                try:
+                    me: PlatformUser = platform.get_me()
+                    if service_detail.team_name.strip() == me.team_name.strip():
+                        continue
+                except Exception as e:
+                    logger.error(f'Error fetching own team name: {e}')
                     continue
             else:
                 if SKIP_OUR_TEAM_IP in service_detail.ip:
@@ -370,7 +377,9 @@ def main():
                 for challenge in challenges:
                     logger.info(f'\tChallenge {challenge.id}: {challenge.title}')
 
-            if PLATFORM in ['ailurus'] or (PLATFORM in ['gemastik25'] and not SKIP_PORT_INPUT):
+            if PLATFORM in ['ailurus'] or (
+                PLATFORM in ['gemastik25'] and not SKIP_PORT_INPUT
+            ):
                 challenge_id = int(input('Enter challenge ID to target: ').strip())
 
                 if PLATFORM in ['gemastik25'] and not SKIP_PORT_INPUT:
@@ -391,7 +400,8 @@ def main():
         except ValueError as e:
             logger.error(f'Error fetching challenges: {e}')
             sys.exit(1)
-    elif not SKIP_PORT_INPUT:
+
+    if not challenges and not SKIP_PORT_INPUT:
         port = int(input('Enter service port to target: ').strip())
 
     while True:
