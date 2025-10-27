@@ -8,6 +8,7 @@ import typing as t
 from platforms.platform import (
     BasePlatform,
     FlagSubmissionResult,
+    PlatformChallenge,
     PlatformService,
     PlatformTeam,
     PlatformUser,
@@ -57,6 +58,16 @@ class Platform(BasePlatform):
 
         for team in res.json():
             yield PlatformTeam(id=int(team.get('id')), name=team.get('username'))
+
+    @override
+    def list_challenges(self) -> t.Iterator[PlatformChallenge]:
+        res = self.session.get(f'{self.base_url}/api/challenges', timeout=5)
+        res.raise_for_status()
+
+        for challenge in res.json():
+            yield PlatformChallenge(
+                id=int(challenge.get('id')), title=challenge.get('title'), port=challenge.get('port')
+            )
 
     @override
     def get_services(self, filter_: dict) -> t.Iterator[PlatformService]:

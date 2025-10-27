@@ -25,6 +25,7 @@ class PlatformTeam:
 class PlatformChallenge:
     id: int
     title: str
+    port: t.Optional[int] = None
 
 
 @dataclass

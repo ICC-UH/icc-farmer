@@ -32,6 +32,7 @@ from shared import (
     PLATFORM,
     SKIP_OUR_TEAM,
     SKIP_OUR_TEAM_IP,
+    SKIP_PORT_INPUT,
     TOKEN,
     USERNAME,
     Flag,
@@ -156,7 +157,7 @@ def run_exploit(
         try:
             if os.name == 'nt':
                 proc = subprocess.Popen(
-                    [sys.executable, file, ip.strip(), str(port)],
+                    [sys.executable, file, ip, str(port)],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     cwd=cwd,
@@ -164,7 +165,7 @@ def run_exploit(
                 )
             else:
                 proc = subprocess.Popen(
-                    [sys.executable, file, ip.strip(), str(port)],
+                    [sys.executable, file, ip, str(port)],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     cwd=cwd,
@@ -361,7 +362,7 @@ def main():
     except ValueError as e:
         logger.error(f'Error fetching teams: {e}')
 
-    if PLATFORM in ['ailurus']:
+    if PLATFORM in ['ailurus', 'gemastik25']:
         try:
             challenges = list(platform.list_challenges())
             if challenges:
@@ -369,14 +370,28 @@ def main():
                 for challenge in challenges:
                     logger.info(f'\tChallenge {challenge.id}: {challenge.title}')
 
-            challenge_id = int(input('Enter challenge ID to target: ').strip())
+            if PLATFORM in ['ailurus'] or (PLATFORM in ['gemastik25'] and not SKIP_PORT_INPUT):
+                challenge_id = int(input('Enter challenge ID to target: ').strip())
+
+                if PLATFORM in ['gemastik25'] and not SKIP_PORT_INPUT:
+                    selected_challenge = next(
+                        (c for c in challenges if c.id == challenge_id), None
+                    )
+                    if selected_challenge is None:
+                        logger.error(f'Challenge ID {challenge_id} not found.')
+                        sys.exit(1)
+
+                    port = selected_challenge.port
+                    logger.info(
+                        f'Selected challenge {selected_challenge.title} with port {port}.'
+                    )
         except requests.RequestException as e:
             logger.error(f'Network error fetching challenges: {e}')
             sys.exit(1)
         except ValueError as e:
             logger.error(f'Error fetching challenges: {e}')
             sys.exit(1)
-    else:
+    elif not SKIP_PORT_INPUT:
         port = int(input('Enter service port to target: ').strip())
 
     while True:
@@ -406,7 +421,7 @@ def main():
             continue
 
         # what the fuck is this?
-        if challenge_id == -1:
+        if challenge_id == -1 or (PLATFORM in ['gemastik25'] and not SKIP_PORT_INPUT):
             for service in services:
                 try:
                     ip_str = service.addresses[0].rsplit(':', 1)[0]
