@@ -7,23 +7,23 @@ from logging.handlers import RotatingFileHandler
 
 from typing_extensions import override
 
-PLATFORM = 'wreckit'
-BASE_URL = 'https://wreckit-api.siberlab.id/'
+PLATFORM = 'gemastik25'
+BASE_URL = 'https://gemastik-api.siberlab.id/'
 
 USERNAME = ''
 PASSWORD = ''
-TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MTEwMjk0MywianRpIjoiMTIxNDExMmUtYTM2OC00ZGNmLWEzZmUtZTUyNjIxOWQ4YjQ0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IklDQyBaMk0iLCJuYmYiOjE3NjExMDI5NDMsImNzcmYiOiI3Nzc2ZDZlZi01OWZhLTQ3NjQtODAxNC1mNmRlMTAyYjkxODciLCJleHAiOjE3NjExODkzNDN9.7-otID9i2XjyPY1MDSF8z4vMqBYo-ff7kUP_fBoBwH0'  # for ailurus, and WreckIt
+TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MTU0ODQxMSwianRpIjoiYmM4OWU4YzMtM2Y0OS00MTlhLWI3MDMtMmMzZWRhNTQ5YTQ2IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IklDQyBQaXNhbmcgTW9sZW4iLCJuYmYiOjE3NjE1NDg0MTEsImNzcmYiOiJmMDUyODA1MS0xNTg5LTRlMmUtOWEwYi1hMGI1M2RhODU1NDUiLCJleHAiOjE3NjE2MzQ4MTF9.U7cUN5HMPXKFQaJa_l6ne-swjdfzmVV--Ypyr0VOR0Y'  # for ailurus, and WreckIt
 
-FLAG_PREFIX = 'WRECKIT6{'
-CAN_BATCH_SUBMIT_FLAG = False
+FLAG_PREFIX = 'GEMASTIK25{'
+CAN_BATCH_SUBMIT_FLAG = True
 SKIP_OUR_TEAM = True
-SKIP_OUR_TEAM_IP = '18.141.207.253'  # for WreckIt
+SKIP_OUR_TEAM_IP = '47.128.239.219'  # for WreckIt
 
-INTERVAL = 60 * 5
+INTERVAL = 60 * 2
 TOTAL_TEAM = 10
 
 FARMER_WAKE = max(8, (INTERVAL // 2) - 8)
-FARMER_TIMEOUT = 8  # max(4, (FARMER_WAKE // 2) - 4)
+FARMER_TIMEOUT = 32  # max(4, (FARMER_WAKE // 2) - 4)
 FARMER_MAX_WORKERS = 2
 
 SUBMITTER_WAKE = 1  # max(4, (INTERVAL // TOTAL_TEAM) - 4)
