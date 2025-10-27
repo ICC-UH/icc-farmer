@@ -105,6 +105,7 @@ class Platform(BasePlatform):
             'Flag submitted successfully': 'accepted',
             'Invalid flag': 'rejected',
             'Flag has already been submitted': 'already_submitted',
+            'Cannot submit your own flag': 'own_flag',
         }
         return FlagSubmissionResult(
             flag=flag, status=status_map.get(verdict, 'unknown')
