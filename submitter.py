@@ -177,8 +177,9 @@ def main():
     cursor = conn.cursor()
 
     try:
+        logger.info('Starting flag submission loop...')
         while True:
-            logger.info('Checking for flags to submit...')
+            # logger.info('Checking for flags to submit...')
 
             _ = cursor.execute(
                 'SELECT * FROM flags WHERE status = ?', (FlagStatus.UNKNOWN,)
@@ -203,15 +204,19 @@ def main():
                         except TypeError:
                             # For Python versions < 3.9 which do not support cancel_futures
                             ex.shutdown(wait=True)
-            else:
-                logger.info('No flags to submit.')
+
+                logger.info(
+                    f'Sleeping for {SUBMITTER_WAKE} seconds before next submission...'
+                )
+            # else:
+            #     logger.info('No flags to submit.')
 
             if stop_event.is_set():
                 break
 
-            logger.info(
-                f'Sleeping for {SUBMITTER_WAKE} seconds before next submission...'
-            )
+            # logger.info(
+            #     f'Sleeping for {SUBMITTER_WAKE} seconds before next submission...'
+            # )
             time.sleep(SUBMITTER_WAKE)
     except KeyboardInterrupt:
         raise
