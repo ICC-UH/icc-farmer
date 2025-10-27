@@ -156,7 +156,7 @@ def run_exploit(
         try:
             if os.name == 'nt':
                 proc = subprocess.Popen(
-                    [sys.executable, file, ip, str(port)],
+                    [sys.executable, file, ip.strip(), str(port)],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     cwd=cwd,
@@ -164,7 +164,7 @@ def run_exploit(
                 )
             else:
                 proc = subprocess.Popen(
-                    [sys.executable, file, ip, str(port)],
+                    [sys.executable, file, ip.strip(), str(port)],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     cwd=cwd,
@@ -235,7 +235,7 @@ def exploit_services(
     for service in services:
         try:
             ip, port_str = service.addresses[0].rsplit(':', 1)
-            ip = ip
+            ip = ip.strip()
             port = int(port_str)
         except (ValueError, AttributeError):
             raise ValueError(f'Invalid address format: {service.addresses[0]!r}')
